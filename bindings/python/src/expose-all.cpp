@@ -10,34 +10,67 @@
 #include <proxsuite/helpers/version.hpp>
 
 namespace proxsuite {
-namespace proxqp {
+//namespace proxqp {
 namespace python {
 
 template<typename T>
 void
 exposeCommon(pybind11::module_ m)
 {
-  exposeResults<T>(m);
-  exposeSettings<T>(m);
+  proxsuite::proxqp::python::exposeResults<T>(m);
+  proxsuite::proxqp::python::exposeSettings<T>(m);
 }
 
 template<typename T, typename I>
 void
 exposeSparseAlgorithms(pybind11::module_ m)
 {
-  sparse::python::exposeSparseModel<T, I>(m);
-  sparse::python::exposeQpObjectSparse<T, I>(m);
-  sparse::python::solveSparseQp<T, I>(m);
+  proxsuite::proxqp::sparse::python::exposeSparseModel<T, I>(m);
+  proxsuite::proxqp::sparse::python::exposeQpObjectSparse<T, I>(m);
+  proxsuite::proxqp::sparse::python::solveSparseQp<T, I>(m);
 }
 
 template<typename T>
 void
 exposeDenseAlgorithms(pybind11::module_ m)
 {
-  dense::python::exposeDenseModel<T>(m);
-  dense::python::exposeQpObjectDense<T>(m);
-  dense::python::solveDenseQp<T>(m);
+  proxsuite::proxqp::dense::python::exposeDenseModel<T>(m);
+  proxsuite::proxqp::dense::python::exposeQpObjectDense<T>(m);
+  proxsuite::proxqp::dense::python::solveDenseQp<T>(m);
 }
+
+template<typename T>
+void
+exposeDenseLinalg(pybind11::module_ m)
+{
+  proxsuite::linalg::dense::python::DenseIterativeSolve<T>(m);
+}
+
+
+template<typename T,typename I>
+void
+exposeSparseLinalg(pybind11::module_ m)
+{
+  proxsuite::linalg::sparse::python::SparseFactorization<T,I>(m);
+  proxsuite::linalg::sparse::python::SparseEigenFactorization<T>(m);
+  
+}
+
+
+template<typename T,typename I>
+void
+exposeSparseSocp(pybind11::module_ m)
+{
+  proxsuite::proxqp::sparse::python::exposeSocpObjectSparse<T,I>(m);
+}
+
+template<typename T>
+void
+exposeDenseSocp(pybind11::module_ m)
+{
+  proxsuite::proxqp::dense::python::exposeSocpObjectDense<T>(m);
+}
+
 
 PYBIND11_MODULE(PYTHON_MODULE_NAME, m)
 {
@@ -52,15 +85,28 @@ PYBIND11_MODULE(PYTHON_MODULE_NAME, m)
         proxsuite
     )pbdoc";
 
+  //pybind11::module_ linalg_module = m.def_submodule("linalg","The linear system solvers of the proxSuite library");
+  //exposeDenseLinalg<proxsuite::proxqp::f64>(linalg_module);
+  //exposeSparseLinalg<proxsuite::proxqp::f64,int32_t>(linalg_module);
+  pybind11::module_ socp_module = m.def_submodule("proxsocp","The proxSocp solvers of the proxSuite library");
+  
+
+  pybind11::module_ dense_socp_module =
+    socp_module.def_submodule("dense", "Dense solver of proxSOCP");
+  pybind11::module_ sparse_socp_module =
+    socp_module.def_submodule("sparse", "Sparse solver of proxSOCP");
+  exposeSparseSocp<c_float,c_int>(sparse_socp_module);
+  exposeDenseSocp<proxsuite::proxqp::f64>(dense_socp_module);
+
   pybind11::module_ proxqp_module =
     m.def_submodule("proxqp", "The proxQP solvers of the proxSuite library");
-  exposeCommon<f64>(proxqp_module);
+  exposeCommon<proxsuite::proxqp::f64>(proxqp_module);
   pybind11::module_ dense_module =
     proxqp_module.def_submodule("dense", "Dense solver of proxQP");
-  exposeDenseAlgorithms<f64>(dense_module);
+  exposeDenseAlgorithms<proxsuite::proxqp::f64>(dense_module);
   pybind11::module_ sparse_module =
     proxqp_module.def_submodule("sparse", "Sparse solver of proxQP");
-  exposeSparseAlgorithms<f64, int32_t>(sparse_module);
+  exposeSparseAlgorithms<proxsuite::proxqp::f64, int32_t>(sparse_module);
 
   // Add version
   m.attr("__version__") = helpers::printVersion();
@@ -83,5 +129,5 @@ PYBIND11_MODULE(PYTHON_MODULE_NAME, m)
 
 } // namespace python
 
-} // namespace proxqp
+//} // namespace proxqp
 } // namespace proxsuite

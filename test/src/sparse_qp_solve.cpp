@@ -10,7 +10,7 @@
 using namespace proxsuite::proxqp;
 using namespace proxsuite::proxqp::utils;
 using T = double;
-using I = c_int;
+using I = c_int;//proxsuite::proxqp::utils::c_int;
 using namespace proxsuite::linalg::sparse::tags;
 
 DOCTEST_TEST_CASE("sparse random strongly convex qp with equality and "

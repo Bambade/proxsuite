@@ -9,7 +9,7 @@
 
 using namespace proxsuite;
 using T = double;
-using I = proxqp::utils::c_int;
+using I = c_int;//proxqp::utils::c_int;
 using namespace linalg::sparse::tags;
 /*
 TEST_CASE("random ruiz") {

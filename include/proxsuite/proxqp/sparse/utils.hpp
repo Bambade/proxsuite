@@ -330,6 +330,56 @@ struct AugmentedKkt : Eigen::EigenBase<AugmentedKkt<T, I>>
   }
 };
 
+
+template<typename T, typename I>
+struct AugmentedKktSocp : Eigen::EigenBase<AugmentedKktSocp<T, I>>
+{
+  struct Raw /* NOLINT */
+  {
+    proxsuite::linalg::sparse::MatRef<T, I> kkt_active;
+    proxsuite::linalg::veg::Slice<bool> active_constraints;
+    isize n;
+    isize n_eq;
+    isize n_in;
+	  isize n_soc;
+    T rho;
+    T mu_eq;
+    T mu_in;
+	  T mu_soc;
+  } _;
+
+  AugmentedKktSocp /* NOLINT */ (Raw raw) noexcept
+    : _{ raw }
+  {
+  }
+
+  using Scalar = T;
+  using RealScalar = T;
+  using StorageIndex = I;
+  enum
+  {
+    ColsAtCompileTime = Eigen::Dynamic,
+    MaxColsAtCompileTime = Eigen::Dynamic,
+    IsRowMajor = false,
+  };
+
+  auto rows() const noexcept -> isize { return _.n + _.n_eq + _.n_in + _.n_soc; }
+  auto cols() const noexcept -> isize { return rows(); }
+  template<typename Rhs>
+  auto operator*(Eigen::MatrixBase<Rhs> const& x) const
+    -> Eigen::Product<AugmentedKktSocp, Rhs, Eigen::AliasFreeProduct> // TODO 
+  {
+    return Eigen::Product< //
+      AugmentedKktSocp,
+      Rhs,
+      Eigen::AliasFreeProduct>{
+      *this,
+      x.derived(),
+    };
+  }
+};
+
+
 template<typename T>
 using VecMapMut = Eigen::Map<Eigen::Matrix<T, Eigen::Dynamic, 1>,
                              Eigen::Unaligned,
@@ -775,6 +825,70 @@ struct generic_product_impl<
     }
   }
 };
+
+
+
+template<typename T, typename I>
+struct traits<proxsuite::proxqp::sparse::detail::AugmentedKktSocp<T, I>>
+  : Eigen::internal::traits<Eigen::SparseMatrix<T, Eigen::ColMajor, I>>
+{
+};
+
+template<typename Rhs, typename T, typename I>
+struct generic_product_impl<
+  proxsuite::proxqp::sparse::detail::AugmentedKktSocp<T, I>,
+  Rhs,
+  SparseShape,
+  DenseShape,
+  GemvProduct>
+  : generic_product_impl_base<
+      proxsuite::proxqp::sparse::detail::AugmentedKktSocp<T, I>,
+      Rhs,
+      generic_product_impl<
+        proxsuite::proxqp::sparse::detail::AugmentedKktSocp<T, I>,
+        Rhs>>
+{
+  using Mat_ = proxsuite::proxqp::sparse::detail::AugmentedKktSocp<T, I>;
+
+  using Scalar = typename Product<Mat_, Rhs>::Scalar;
+
+  template<typename Dst>
+  static void scaleAndAddTo(Dst& dst,
+                            Mat_ const& lhs,
+                            Rhs const& rhs,
+                            [[maybe_unused]] Scalar const& alpha)
+  {
+    using proxsuite::linalg::veg::isize;
+
+    VEG_ASSERT(alpha == Scalar(1));
+    proxsuite::proxqp::sparse::detail::noalias_symhiv_add(
+      dst, lhs._.kkt_active.to_eigen(), rhs);
+
+    {
+      isize n = lhs._.n;
+      isize n_eq = lhs._.n_eq;
+      isize n_in = lhs._.n_in;
+      isize n_soc = lhs._.n_soc;
+
+      auto dst_x = dst.head(n);
+      auto dst_y = dst.segment(n, n_eq);
+      auto dst_z = dst.segment(n+n_eq,n_in);
+      auto dst_z_soc = dst.tail(n_soc);
+
+      auto rhs_x = rhs.head(n);
+      auto rhs_y = rhs.segment(n, n_eq);
+      auto rhs_z = rhs.segment(n+n_eq,n_in);
+      auto rhs_z_soc = rhs.tail(n_soc);
+
+      dst_x += lhs._.rho * rhs_x;
+      dst_y += (-1 / lhs._.mu_eq) * rhs_y;
+      dst_z += (-1 / lhs._.mu_in) * rhs_z;
+      dst_z_soc += (-1 / lhs._.mu_soc) * rhs_z_soc;
+    }
+  }
+};
+
+
 } // namespace internal
 } // namespace Eigen
 

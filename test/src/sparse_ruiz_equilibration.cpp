@@ -11,7 +11,7 @@
 using namespace proxsuite;
 using namespace proxsuite::proxqp;
 using T = double;
-using I = utils::c_int;
+using I = c_int;//utils::c_int;
 using namespace proxsuite::linalg::sparse::tags;
 
 TEST_CASE("upper part")

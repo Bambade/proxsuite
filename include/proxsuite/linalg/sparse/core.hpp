@@ -9,6 +9,7 @@
 #include <proxsuite/linalg/veg/memory/dynamic_stack.hpp>
 #include <type_traits>
 #include <Eigen/SparseCore>
+#include <proxsuite/linalg/qdldl/types.h>
 
 #define SPARSE_LDLT_CONCEPT(...)                                               \
   VEG_CONCEPT_MACRO(::proxsuite::linalg::sparse::concepts, __VA_ARGS__)
@@ -427,6 +428,12 @@ struct MatRef : _detail::SymbolicMatRefInterface<MatRef<T, I>, I>
     return { _.nrows, _.ncols, _.nnz, _.col, _.row, _.val, _.nnz_per_col };
   }
 
+  auto to_csc() const noexcept
+    -> csc
+  {
+    return csc{static_cast<c_int>(_.nnz), static_cast<c_int>(_.nrows), static_cast<c_int>(_.ncols), reinterpret_cast<c_int*>(_.col), reinterpret_cast<c_int*>(_.row), reinterpret_cast<c_float*>(_.val), static_cast<c_int>(-1) };
+  }
+
 private:
   struct
   {
@@ -510,6 +517,13 @@ struct MatMut : _detail::SymbolicMatMutInterface<MatMut<T, I>, I>
   {
     return { _.nrows, _.ncols, _.nnz, _.col, _.row, _.val, _.nnz_per_col };
   }
+
+  auto to_csc() noexcept
+    -> csc
+  {
+    return csc{static_cast<c_int>(_.nnz), static_cast<c_int>(_.nrows), static_cast<c_int>(_.ncols), reinterpret_cast<c_int*>(_.col), reinterpret_cast<c_int*>(_.row), reinterpret_cast<c_float*>(_.val), static_cast<c_int>(-1) };
+  }
+
   void _set_nnz(isize new_nnz) noexcept { _.nnz = new_nnz; }
 
 private:

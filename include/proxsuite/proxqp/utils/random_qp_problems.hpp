@@ -16,8 +16,8 @@ namespace proxsuite {
 namespace proxqp {
 namespace utils {
 
-using c_int = long long;
-using c_float = double;
+//using c_int = long long;
+//using c_float = double;
 
 namespace proxqp = proxsuite::proxqp;
 

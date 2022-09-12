@@ -36,8 +36,53 @@ option(INSTALL_DOCUMENTATION "Generate and install the documentation" OFF)
 set(DOXYGEN_USE_MATHJAX YES)
 set(DOXYGEN_USE_TEMPLATE_CSS YES)
 
+
+
+
+# Use floats instead of integers
+option (DFLOAT "Use float numbers instead of doubles" OFF)
+message(STATUS "Floats are ${DFLOAT}")
+
+# Use long integers for indexing
+option (DLONG "Use long integers (64bit) for indexing" ON)
+if (NOT (CMAKE_SIZEOF_VOID_P EQUAL 8))
+	message(STATUS "Disabling long integers (64bit) on 32bit machine")
+	set(DLONG OFF)
+endif()
+message(STATUS "Long integers (64bit) are ${DLONG}")
+
+# numeric types
+if(DFLOAT)
+  set(QDLDL_FLOAT_TYPE "float")
+else()
+	set(QDLDL_FLOAT_TYPE "double")
+endif()
+
+if(DLONG)
+  set(QDLDL_INT_TYPE "long long")
+	set(QDLDL_INT_TYPE_MAX "LLONG_MAX")
+else()
+	set(QDLDL_INT_TYPE "int")
+	set(QDLDL_INT_TYPE_MAX "INT_MAX")
+endif()
+
+#boolean type is always unsigned char
+#for now, since _Bool does not exist in
+#C89 and we want to avoid interoperability
+#problems when calling QDLDL from C++
+set(QDLDL_BOOL_TYPE "unsigned char")
+
+
+
+
+
+
+
+
+
+
 include(${CMAKE_CURRENT_LIST_DIR}/cmake-module/base.cmake)
-compute_project_args(PROJECT_ARGS LANGUAGES CXX)
+compute_project_args(PROJECT_ARGS LANGUAGES CXX C)
 project(${PROJECT_NAME} ${PROJECT_ARGS})
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake-module/ide.cmake)
@@ -87,6 +132,7 @@ endif()
 
 # Look for dependencies
 add_project_dependency(Eigen3 REQUIRED PKG_CONFIG_REQUIRES "eigen3 >= 3.0.5")
+#add_project_dependency(osqp REQUIRED)
 
 set(SIMDE_HINT_FAILURE
     "Set BUILD_WITH_VECTORIZATION_SUPPORT=OFF or install Simde on your system.\n If Simde is already installed, ensure that the CMake variable CMAKE_MODULE_PATH correctly points toward the location of FindSimde.cmake file."
@@ -97,6 +143,8 @@ endif()
 
 # Build the main library
 file(GLOB_RECURSE ${PROJECT_NAME}_HEADERS ${PROJECT_SOURCE_DIR}/include/*.hpp)
+file(GLOB_RECURSE ${PROJECT_NAME}_HEADERS_H ${PROJECT_SOURCE_DIR}/include/*.h)
+list (APPEND ${PROJECT_NAME}_HEADERS ${${PROJECT_NAME}_HEADERS_H})
 
 add_library(proxsuite INTERFACE)
 if(MSVC)
@@ -106,10 +154,18 @@ target_link_libraries(
   proxsuite
   PUBLIC
   INTERFACE Eigen3::Eigen)
+
 target_include_directories(
-  proxsuite INTERFACE "$<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>"
+  proxsuite INTERFACE "$<BUILD_INTERFACE:${linsys_solvers_includes}>"
                       "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
-set(EXPORTED_TARGETS_LIST proxsuite)
+
+add_subdirectory(src)
+target_link_libraries(
+  proxsuite
+  PUBLIC
+  INTERFACE linsys_qdldl)
+
+set(EXPORTED_TARGETS_LIST proxsuite linsys_qdldl)
 
 add_header_group(${PROJECT_NAME}_HEADERS)
 

@@ -20,6 +20,8 @@ template<typename T>
 using SparseMat = Eigen::SparseMatrix<T, 1>;
 template<typename T>
 using VecRef = Eigen::Ref<Eigen::Matrix<T, DYN, 1> const>;
+template <typename T>
+using VecRefMut = Eigen::Ref<Eigen::Matrix<T, DYN, 1>>;
 template<typename T>
 using MatRef = Eigen::Ref<Eigen::Matrix<T, DYN, DYN> const>;
 template<typename T>
