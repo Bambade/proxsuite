@@ -691,8 +691,8 @@ public:
   auto p() -> Perm { return { VecMapISize(perm.ptr(), dim()) }; }
   auto pt() -> Perm { return { VecMapISize(perm_inv.ptr(), dim()) }; }
 
-  auto p_exposed() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return { VecMapISize(perm.ptr(), dim()) }; }
-  auto pt_exposed() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return { VecMapISize(perm_inv.ptr(), dim()) }; }
+  // auto p_exposed() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return { VecMapISize(perm.ptr(), dim()) }; }
+  // auto pt_exposed() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return { VecMapISize(perm_inv.ptr(), dim()) }; }
   /*!
    * Returns the memory storage requirements for a factorization of a matrix
    * of size at most `n×n`

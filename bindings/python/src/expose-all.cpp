@@ -91,8 +91,8 @@ PYBIND11_MODULE(PYTHON_MODULE_NAME, m)
         proxsuite
     )pbdoc";
 
-  pybind11::module_ linalg_module = m.def_submodule("linalg","The linear system solvers of the proxSuite library");
-  exposeDenseLinalg<proxsuite::proxqp::f64>(linalg_module);
+  // pybind11::module_ linalg_module = m.def_submodule("linalg","The linear system solvers of the proxSuite library");
+  // exposeDenseLinalg<proxsuite::proxqp::f64>(linalg_module);
   //exposeSparseLinalg<proxsuite::proxqp::f64,int32_t>(linalg_module);
   
   
