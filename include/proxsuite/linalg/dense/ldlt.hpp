@@ -10,6 +10,7 @@
 #include "proxsuite/linalg/dense/modify.hpp"
 #include "proxsuite/linalg/dense/solve.hpp"
 #include <proxsuite/linalg/veg/vec.hpp>
+#include <iostream>
 
 namespace proxsuite {
 namespace linalg {
@@ -690,6 +691,8 @@ public:
   auto p() -> Perm { return { VecMapISize(perm.ptr(), dim()) }; }
   auto pt() -> Perm { return { VecMapISize(perm_inv.ptr(), dim()) }; }
 
+  auto p_exposed() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return { VecMapISize(perm.ptr(), dim()) }; }
+  auto pt_exposed() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return { VecMapISize(perm_inv.ptr(), dim()) }; }
   /*!
    * Returns the memory storage requirements for a factorization of a matrix
    * of size at most `n×n`
@@ -782,6 +785,123 @@ public:
       rhs[i] = work[perm_inv[i]];
     }
   }
+
+  //struct PrimalSchurComplement
+  //{
+  void primal_solve_in_place(Eigen::Ref<Vec> rhs, 
+                      proxsuite::linalg::veg::dynstack::DynStackMut stack) const
+  {
+    isize n = rhs.rows();
+    LDLT_TEMP_VEC_UNINIT(T, work, n, stack);
+
+    for (isize i = 0; i < n; ++i) {
+      work[i] = rhs[perm[i]]; // the n first entries only are considered
+    }
+
+    proxsuite::linalg::dense::solve(ld_col().topLeftCorner(n,n), work);
+
+    for (isize i = 0; i < n; ++i) {
+      rhs[i] = work[perm_inv[i]]; 
+    }
+  }
+  //};
+
+  //struct DualSchurComplement
+  //{
+  void dual_solve_in_place(Eigen::Ref<Vec> rhs, isize n,
+                      proxsuite::linalg::veg::dynstack::DynStackMut stack) const
+  {
+    isize m = rhs.rows();
+    LDLT_TEMP_VEC_UNINIT(T, work, m, stack);
+
+    for (isize i = 0; i < m; ++i) {
+      work[i] = rhs[perm[n+i]-n]; // n are the first n entries that are not considered
+    }
+
+    proxsuite::linalg::dense::solve(ld_col().bottomRightCorner(m,m), work);
+
+    for (isize i = 0; i < m; ++i) {
+      rhs[i] = work[perm_inv[n+i]-n];
+    }
+  }
+
+  void dual_multiply_in_place(Eigen::Ref<Vec> entry, isize n,
+                      proxsuite::linalg::veg::dynstack::DynStackMut stack) const
+  { // computes in place pt @ ldlt @ p x for the bottom right corner
+    isize m = entry.rows();
+    LDLT_TEMP_VEC_UNINIT(T, work, m, stack);
+    LDLT_TEMP_VEC_UNINIT(T, work2, m, stack);
+    for (isize i = 0; i < m; ++i) {
+      work[i] = entry[perm_inv[n+i]-n]; // n are the first n entries that are not considered
+    }
+    auto l = ld_col().bottomRightCorner(m,m).template triangularView<Eigen::UnitLower>();
+    auto lt = util::trans(ld_col().bottomRightCorner(m,m)).template triangularView<Eigen::UnitUpper>();
+    auto d = util::diagonal(ld_col().bottomRightCorner(m,m));
+    work2 = lt * work ; //lt * entry ; 
+    work2 = -work2.cwiseProduct(d);
+    work = l * work2 ; 
+    //entry = work;
+
+    for (isize i = 0; i < m; ++i) {
+      entry[i] = work[perm[n+i]-n];
+    }
+  }
+
+  auto dbg_reconstructed_matrix_low(isize n,isize m) const -> Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>
+  {
+
+    auto l = ld_col().bottomRightCorner(m,m).template triangularView<Eigen::UnitLower>();
+    auto lt = util::trans(ld_col().bottomRightCorner(m,m)).template triangularView<Eigen::UnitUpper>();
+    auto d = util::diagonal(ld_col().bottomRightCorner(m,m));
+
+    auto tmp = ColMat(m, m);
+    tmp = l;
+    tmp = tmp * d.asDiagonal();
+    auto A = ColMat(tmp * lt);
+
+    for (isize i = 0; i < m; i++) {
+      tmp.row(i) = A.row(perm_inv[n+i]-n);
+    }
+    for (isize i = 0; i < m; i++) {
+      A.col(i) = tmp.col(perm_inv[i+n]-n);
+    }
+    return A;
+  }
+
+
+  T power_iteration(isize n, isize m,
+                      proxsuite::linalg::veg::dynstack::DynStackMut stack,
+                      const int max_it = 10,
+                      const T eps_abs = 1.e-8) const
+  { // computes maximal eigen value of the bottom right matrix of the LDLT factorization
+    LDLT_TEMP_VEC(T, work, m, stack);
+    LDLT_TEMP_VEC(T, eig_vec, m, stack);
+    eig_vec.array()+=1.;
+    T eig = 0;
+
+    for (isize i = 0; i < max_it; i++) {
+      // calculate the matrix-by-vector product LDLT work
+      work = eig_vec;
+      dual_multiply_in_place(work,n,stack);
+      // calculate associated eigenvalue
+      eig = eig_vec.dot(work) / eig_vec.norm();
+      T err = proxsuite::proxqp::dense::infty_norm(work - eig * eig_vec);
+      //std::cout << "i " << i << " err " << err << std::endl;
+      if (err <= eps_abs) {
+        break;
+      }
+      // normalize the eigen vector
+      T eig_vec_norm = work.norm();
+      eig_vec = work / eig_vec_norm;
+    }
+    return eig ; 
+  }
+
+  //};
+  
+  //DualSchurComplement get_dual_schur_complement(){
+  //  return DualSchurComplement();
+  //}
 
   auto dbg_reconstructed_matrix_internal() const -> ColMat
   {

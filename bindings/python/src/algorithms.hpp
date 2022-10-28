@@ -11,6 +11,6 @@
 #include "expose-qpobject.hpp"
 #include "expose-solve.hpp"
 #include "expose-ldlt.hpp"
-#include "expose-socpobject.hpp"
+#include "expose-primal_dual_splitting.hpp"
 
 #endif /* end of include guard proxsuite_python_algorithms_hpp */

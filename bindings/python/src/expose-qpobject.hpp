@@ -19,6 +19,95 @@ namespace python {
 
 template<typename T>
 void
+exposeRuiz(pybind11::module_ m)
+{
+
+  ::pybind11::class_<dense::preconditioner::RuizEquilibration<T>>(m, "DenseRuiz", pybind11::module_local())
+    .def(::pybind11::init<i64, i64, f64, i64>(),
+         pybind11::arg_v("dim", 0, "primal dimension."),
+         pybind11::arg_v("n_eq_in", 0, "total dimension (primal + constraints)."),
+         pybind11::arg_v("epsilon", T(1.e-3), "accuracy desired for achieving equilibration."),
+         pybind11::arg_v("max_iter", 10, "maximum number of iterations.")
+         //pybind11::arg_v("sym", sparse::preconditioner::Symmetry::UPPER, "symmetry of matrix entries."),
+         //pybind11::arg_v("logger", nullptr, "logger used for printing."),
+         //"Constructor using SOCP model dimensions."
+         )
+    .def_readwrite("delta", &dense::preconditioner::RuizEquilibration<T>::delta)
+    .def_readwrite("dim", &dense::preconditioner::RuizEquilibration<T>::dim)
+    .def_readwrite("epsilon", &dense::preconditioner::RuizEquilibration<T>::epsilon)
+    .def_readwrite("max_iter", &dense::preconditioner::RuizEquilibration<T>::max_iter)
+    .def_readwrite("sym", &dense::preconditioner::RuizEquilibration<T>::sym)
+    .def("scale_qp_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::scale_qp_in_place,
+         "function used for cleaning the result "
+         "class.")
+    .def("scale_qp",
+         &dense::preconditioner::RuizEquilibration<T>::scale_qp_in_place_for_bidings,
+         "function used for cleaning the result "
+         "class.")
+    .def("scale_primal_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::scale_primal_in_place,
+         "function used for scaling primal "
+         "in place.")
+    .def("scale_dual_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::scale_dual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_dual_in_place_in",
+         &dense::preconditioner::RuizEquilibration<T>::scale_dual_in_place_in,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::unscale_primal_in_place_for_bindings,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_dual_in_place_eq",
+         &dense::preconditioner::RuizEquilibration<T>::unscale_dual_in_place_eq,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_dual_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::unscale_dual_in_place_for_bindings,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_primal_residual_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::scale_primal_residual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_primal_residual_in_place_eq",
+         &dense::preconditioner::RuizEquilibration<T>::scale_primal_residual_in_place_eq,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_primal_residual_in_place_in",
+         &dense::preconditioner::RuizEquilibration<T>::scale_primal_residual_in_place_in,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_dual_residual_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::scale_dual_residual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_residual_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::unscale_primal_residual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_residual_in_place_eq",
+         &dense::preconditioner::RuizEquilibration<T>::unscale_primal_residual_in_place_eq_for_bindings,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_residual_in_place_in",
+         &dense::preconditioner::RuizEquilibration<T>::unscale_primal_residual_in_place_in,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_dual_residual_in_place",
+         &dense::preconditioner::RuizEquilibration<T>::unscale_dual_residual_in_place_for_bindings,
+         "function used for scaling dual "
+         "in place.");
+
+}
+
+
+
+template<typename T>
+void
 exposeQpObjectDense(pybind11::module_ m)
 {
 
@@ -126,6 +215,96 @@ exposeQpObjectDense(pybind11::module_ m)
 namespace sparse {
 
 namespace python {
+
+
+
+template<typename T, typename I>
+void
+exposeRuiz(pybind11::module_ m)
+{
+
+  ::pybind11::class_<sparse::preconditioner::RuizEquilibration<T,I>>(m, "SparseRuiz", pybind11::module_local())
+    .def(::pybind11::init<i64, i64, f64, i64>(),
+         pybind11::arg_v("n", 0, "primal dimension."),
+         pybind11::arg_v("n_eq_in", 0, "total dimension (primal + constraints)."),
+         pybind11::arg_v("epsilon", T(1.e-3), "accuracy desired for achieving equilibration."),
+         pybind11::arg_v("max_iter", 10, "maximum number of iterations.")
+         //pybind11::arg_v("sym", sparse::preconditioner::Symmetry::UPPER, "symmetry of matrix entries."),
+         //pybind11::arg_v("logger", nullptr, "logger used for printing."),
+         //"Constructor using SOCP model dimensions."
+         )
+    .def_readwrite("delta", &sparse::preconditioner::RuizEquilibration<T,I>::delta)
+    .def_readwrite("n", &sparse::preconditioner::RuizEquilibration<T,I>::n)
+    .def_readwrite("epsilon", &sparse::preconditioner::RuizEquilibration<T,I>::epsilon)
+    .def_readwrite("max_iter", &sparse::preconditioner::RuizEquilibration<T,I>::max_iter)
+    .def_readwrite("sym", &sparse::preconditioner::RuizEquilibration<T,I>::sym)
+    .def("scale_qp_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_qp_in_place,
+         "function used for cleaning the result "
+         "class.")
+    .def("scale_qp",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_qp,
+         "function used for cleaning the result "
+         "class.")
+    .def("scale_primal_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_primal_in_place,
+         "function used for scaling primal "
+         "in place.")
+    .def("scale_dual_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_dual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_dual_in_place_in",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_dual_in_place_in,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::unscale_primal_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_dual_in_place_eq",
+         &sparse::preconditioner::RuizEquilibration<T,I>::unscale_dual_in_place_eq,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_dual_in_place_in",
+         &sparse::preconditioner::RuizEquilibration<T,I>::unscale_dual_in_place_in,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_primal_residual_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_primal_residual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_primal_residual_in_place_eq",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_primal_residual_in_place_eq,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_primal_residual_in_place_in",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_primal_residual_in_place_in,
+         "function used for scaling dual "
+         "in place.")
+    .def("scale_dual_residual_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::scale_dual_residual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_residual_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::unscale_primal_residual_in_place,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_residual_in_place_eq",
+         &sparse::preconditioner::RuizEquilibration<T,I>::unscale_primal_residual_in_place_eq,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_primal_residual_in_place_in",
+         &sparse::preconditioner::RuizEquilibration<T,I>::unscale_primal_residual_in_place_in,
+         "function used for scaling dual "
+         "in place.")
+    .def("unscale_dual_residual_in_place",
+         &sparse::preconditioner::RuizEquilibration<T,I>::unscale_dual_residual_in_place,
+         "function used for scaling dual "
+         "in place.");
+
+}
+
 
 template<typename T, typename I>
 void

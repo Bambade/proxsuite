@@ -22,7 +22,6 @@ ruiz_scale_socp_in_place( //
   VectorViewMut<T> delta_,
   VectorViewMut<T> tmp_delta_preallocated,
   SocpViewMut<T> socp,
-  isize n_eq,
   T epsilon,
   isize max_iter,
   proxsuite::proxqp::Symmetry sym) -> T
@@ -33,7 +32,7 @@ ruiz_scale_socp_in_place( //
 
   isize n = socp.H.rows;
   isize m = socp.A.rows;
-  isize n_in = socp.l.to_eigen().rows();
+  isize n_in = socp.u.to_eigen().rows();
 
   T gamma = 1;
   i64 iter = 1;
@@ -42,7 +41,7 @@ ruiz_scale_socp_in_place( //
   auto g = socp.g.to_eigen();
   auto A = socp.A.to_eigen();
   auto u = socp.u.to_eigen();
-  auto l = socp.l.to_eigen();
+  //auto l = socp.l.to_eigen();
 
   auto delta = tmp_delta_preallocated.to_eigen();
 
@@ -117,8 +116,10 @@ ruiz_scale_socp_in_place( //
       A = delta.segment(n, m).asDiagonal() * A * delta.head(n).asDiagonal();
       // normalize vectors
       g.array() *= delta.head(n).array();
-      u.array() *= delta.tail(m).array();
-      l.array() *= delta.segment(n+n_eq,n_in).array();
+      u.head(m).array() *= delta.tail(m).array(); // n_eq + lower n_in constraints
+      u.tail(n_in).array() *= delta.tail(n_in).array();
+      
+      //l.array() *= delta.segment(n+n_eq,n_in).array();
 
       // normalize H
       switch (sym) {
@@ -176,8 +177,8 @@ ruiz_scale_socp_in_place( //
         case Symmetry::general: {
           // all matrix
           gamma =
-            1 /
-            std::max(infty_norm(socp.g.to_eigen()),
+            T(1) /
+            std::max(T(1), // infty_norm(socp.g.to_eigen())
                      (H.colwise().template lpNorm<Eigen::Infinity>()).mean());
           break;
         }
@@ -202,7 +203,6 @@ struct RuizSocpEquilibration
   Vec<T> delta;
   isize n;
   isize n_in;
-  isize n_eq;
   isize m;
   T c;
   T epsilon;
@@ -212,18 +212,16 @@ struct RuizSocpEquilibration
   std::ostream* logger_ptr = nullptr;
 
   RuizSocpEquilibration(isize n_,
-                    isize m_,
-                    isize n_eq_,
                     isize n_in_,
+                    isize m_,
                     T epsilon_ = T(1e-3),
                     i64 max_iter_ = 10,
                     proxsuite::proxqp::Symmetry sym_ = proxsuite::proxqp::Symmetry::general,
                     std::ostream* logger = nullptr)
     : delta(Eigen::Matrix<T, -1, 1>::Ones(n_ + m_))
     , n(n_)
-    , n_in(n_in_)
-    , n_eq(n_eq_)
     , m(m_)
+    , n_in(n_in_)
     , c(1)
     , epsilon(epsilon_)
     , max_iter(max_iter_)
@@ -255,7 +253,6 @@ struct RuizSocpEquilibration
         VectorViewMut<T>{ proxqp::from_eigen, delta },
         VectorViewMut<T>{ proxqp::from_eigen, tmp_delta },
         socp,
-        n_eq,
         epsilon,
         max_iter,
         sym);
@@ -265,7 +262,7 @@ struct RuizSocpEquilibration
       auto g = socp.g.to_eigen();
       auto A = socp.A.to_eigen();
       auto u = socp.u.to_eigen();
-      auto l = socp.l.to_eigen();
+      //auto l = socp.l.to_eigen();
       isize n = socp.H.rows;
       isize m = socp.A.rows;
 
@@ -307,8 +304,9 @@ struct RuizSocpEquilibration
 
       // normalize vectors
       g.array() *= delta.head(n).array();
-      l.array() *= delta.segment(n+n_eq,n_in).array();
-      u.array() *= delta.tail(m).array();
+      //l.array() *= delta.segment(n+n_eq,n_in).array();
+      u.head(m).array() *= delta.tail(m).array();
+      u.tail(n_in).array() *= delta.tail(n_in).array();
 
       g *= c;
       H *= c;

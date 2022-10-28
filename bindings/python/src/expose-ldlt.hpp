@@ -7,6 +7,7 @@
 #include <proxsuite/proxqp/dense/wrapper.hpp>
 #include <proxsuite/proxqp/sparse/wrapper.hpp>
 
+
 #include <Eigen/SparseCholesky>
 
 namespace proxsuite {
@@ -17,6 +18,215 @@ namespace dense {
 
 namespace python {
 
+
+template <typename T>
+struct LDLT_exposed {
+
+  	///// Cholesky Factorization
+  	proxsuite::linalg::dense::Ldlt<T> ldl{};
+  	proxsuite::linalg::veg::Vec<unsigned char> ldl_stack;
+	isize dim;
+	isize n_const;
+	isize n_eq;
+	isize n_in;
+
+  	LDLT_exposed(isize dim_, isize n_eq_, isize n_in_)
+			:ldl{},
+			dim(dim_),
+			n_eq(n_eq_),
+			n_in(n_in_){
+			n_const = n_eq+n_in;
+			ldl.reserve_uninit(dim + n_const);
+			ldl_stack.resize_for_overwrite(
+			proxsuite::linalg::veg::dynstack::StackReq(
+
+				proxsuite::linalg::dense::Ldlt<T>::factorize_req(dim + n_const) |
+
+				(proxsuite::linalg::dense::temp_vec_req(
+				proxsuite::linalg::veg::Tag<T>{}, n_const) & 
+				proxsuite::linalg::veg::dynstack::StackReq{
+				isize{ sizeof(isize) } * (n_const), alignof(isize) } &
+				proxsuite::linalg::dense::Ldlt<T>::diagonal_update_req(
+				dim + n_const, n_const)) |
+				proxsuite::linalg::dense::Ldlt<T>::solve_in_place_req(dim + n_const))
+				.alloc_req());
+	}
+	void solve_in_place(proxsuite::proxqp::dense::VecRefMut<T> rhs){
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.solve_in_place(rhs,stack);
+	}
+	/*
+	void solve_in_place_low(proxsuite::proxqp::dense::VecRefMut<T> rhs){
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.solve_in_place_low(rhs,dim,stack);
+	}
+	void solve_in_place_up(proxsuite::proxqp::dense::VecRefMut<T> rhs){
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.solve_in_place_up(rhs,stack);
+	}
+	void multiply_in_place_low(proxsuite::proxqp::dense::VecRefMut<T> rhs){
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.multiply_in_place_low(rhs,dim,stack);
+	}
+	*/
+
+	void dual_solve_in_place(proxsuite::proxqp::dense::VecRefMut<T> rhs){
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.dual_solve_in_place(rhs,dim,stack);
+	}
+	void primal_solve_in_place(proxsuite::proxqp::dense::VecRefMut<T> rhs){
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.primal_solve_in_place(rhs,stack);
+	}
+	void dual_multiply_in_place(proxsuite::proxqp::dense::VecRefMut<T> rhs){
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.dual_multiply_in_place(rhs,dim,stack);
+	}
+	T power_iteration(const int max_it = 10,const T eps_abs = 1.e-8){
+		proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+		return ldl.power_iteration(dim,n_const,stack,max_it,eps_abs);
+
+	}
+	Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor> dbg_reconstructed_matrix_low(){
+		return ldl.dbg_reconstructed_matrix_low(dim,n_const);
+	}
+	void mu_update(T mu_eq_old, T mu_in_old, T mu_eq_new, T mu_in_new, proxsuite::proxqp::dense::Vec<bool>& mask_for_inf_linear_bounds )
+	{		// if mask_for_inf_linear_bounds[i] = true, the upper or lower linear bound is + or - infinite, and the penalization parameter must be equal to the equality constrained one,
+			// otherwise, it should be half of it
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			if ((n_const) == 0) {
+				return;
+			}
+			T diff_eq = mu_eq_old - mu_eq_new;
+			T diff_in = mu_in_old - mu_in_new;
+			LDLT_TEMP_VEC_UNINIT(T, rank_update_alpha, n_const, stack);
+			rank_update_alpha.head(n_eq).setConstant(diff_eq);
+			//rank_update_alpha.tail(n_in).setConstant(diff_eq);
+			//rank_update_alpha.tail(n_in).setConstant(diff_eq);
+
+			//rank_update_alpha.tail(n_in) = (mask_for_inf_linear_bounds).select(mu_eq_old - mu_eq_new, mu_in_old - mu_in_new);
+			
+			{
+				auto _indices = stack.make_new_for_overwrite(
+				proxsuite::linalg::veg::Tag<isize>{}, n_const);
+				isize* indices = _indices.ptr_mut();
+				for (isize k = 0; k < n_const; ++k) {
+					//std::cout << "k " << k << std::endl;
+					if (k >=n_eq){
+						if (mask_for_inf_linear_bounds[k-n_eq]){
+							rank_update_alpha[k] = diff_eq ;
+						}else{
+							rank_update_alpha[k] = diff_in;
+						}
+					}
+					indices[k] = dim + k;
+				}
+				ldl.diagonal_update_clobber_indices(
+				indices, n_const, rank_update_alpha, stack);
+			}
+	}
+	void factorize(proxsuite::proxqp::dense::MatRef<T> mat /* NOLINT */){
+		
+			proxsuite::linalg::veg::dynstack::DynStackMut stack{
+				proxsuite::linalg::veg::from_slice_mut, ldl_stack.as_mut()
+			};
+			ldl.factorize(mat, stack);
+	}
+	auto l() const noexcept -> Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>
+	{
+
+		return ldl.l();
+	}
+	auto lt() const noexcept -> Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::ColMajor>
+	{
+		return ldl.lt();
+	}
+	auto d() const noexcept -> Eigen::Matrix<T, Eigen::Dynamic, 1>
+	{
+		return ldl.d();
+	}
+	
+	auto p() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return ldl.p_exposed(); }
+	auto pt() -> const Eigen::Matrix<isize, Eigen::Dynamic, 1> { return ldl.pt_exposed(); }
+};
+
+
+
+
+template<typename T>
+void
+exposeDenseLDLT(pybind11::module_ m)
+{
+
+  ::pybind11::class_<LDLT_exposed<T>>(m, "LDLT_exposed", pybind11::module_local())
+    .def(::pybind11::init<proxsuite::linalg::veg::i64, proxsuite::linalg::veg::i64, proxsuite::linalg::veg::i64>(),
+         pybind11::arg_v("n", 0, "primal dimension."),
+         pybind11::arg_v("n_eq", 0, "number of equality constraints."),
+		 pybind11::arg_v("n_in", 0, "number of inequality constraints."),
+         "Constructor for defining LDLT dense object.") // constructor)
+    .def("solve_in_place",
+         &LDLT_exposed<T>::solve_in_place,
+         "method for solving in place a linear system.")
+	.def("solve_in_place_up",
+         &LDLT_exposed<T>::primal_solve_in_place,
+         "method for solving in place a linear system using only top left corner.")
+	.def("multiply_in_place_low",
+         &LDLT_exposed<T>::dual_multiply_in_place,
+         "method for solving in place a linear system using only bottom right corner.")
+	.def("solve_in_place_low",
+         &LDLT_exposed<T>::dual_solve_in_place,
+         "method for solving in place a linear system using only bottom right corner.")
+	.def("mu_update",
+	     &LDLT_exposed<T>::mu_update,
+	     "block update of mu parameters.")
+	.def("dbg_reconstructed_matrix_low",
+	     &LDLT_exposed<T>::dbg_reconstructed_matrix_low,
+	     "reconstruct lower ldlt factorization.")
+	.def("power_iteration",
+	     &LDLT_exposed<T>::power_iteration,
+		 pybind11::arg_v("max_it", 10, "maximum number of iterations."),
+         pybind11::arg_v("eps_abs", 1.e-8, "absolute accuracy."),
+	     "estimate the maximal eigen value of the bottom right corner of the ldlt factorization.")
+	.def("factorize",
+         &LDLT_exposed<T>::factorize,
+         "factorizes a given matrix.")
+	.def("l",
+         &LDLT_exposed<T>::l,
+         "l factor.")
+	.def("lt",
+         &LDLT_exposed<T>::lt,
+         "lt factor.")
+	.def("d",
+         &LDLT_exposed<T>::d,
+         "d factor.")	 
+	.def("p",
+         &LDLT_exposed<T>::p,
+         "p factor.")
+	.def("pt",
+         &LDLT_exposed<T>::pt,
+         "pt factor.")
+	;
+}
+
+/*
 template <typename T>
 void dense_iterative_solve( //
 		proxqp::dense::VecRef<T> rhs,
@@ -77,10 +287,10 @@ DenseIterativeSolve(pybind11::module_ m)
     pybind11::arg_v(
       "verbose", false, "verbose argument for printing iterative refinement steps with associated residual error."));
 }
-
+*/
 } // namespace python
 } // namespace dense
-
+/*
 namespace sparse {
 namespace python {
 
@@ -494,6 +704,6 @@ SparseEigenFactorization(pybind11::module_ m)
 
 } // namespace python
 } // namespace sparse
-
+*/
 } // namespace linalg
 } // namespace proxsuite

@@ -7,6 +7,7 @@
 #define PROXSUITE_QP_SPARSE_PRECOND_RUIZ_HPP
 
 #include "proxsuite/proxqp/sparse/fwd.hpp"
+#include <proxsuite/linalg/veg/util/dynstack_alloc.hpp>
 
 namespace proxsuite {
 namespace proxqp {
@@ -336,16 +337,17 @@ struct RuizEquilibration
   RuizEquilibration(isize n_,
                     isize n_eq_in,
                     T epsilon_ = T(1e-3),
-                    i64 max_iter_ = 10,
-                    Symmetry sym_ = Symmetry::UPPER,
-                    std::ostream* logger = nullptr)
+                    i64 max_iter_ = 10
+                    //Symmetry sym_ = Symmetry::UPPER,
+                    //std::ostream* logger = nullptr
+                    )
     : delta(Eigen::Matrix<T, -1, 1>::Ones(n_ + n_eq_in))
     , n(n_)
     , c(1)
     , epsilon(epsilon_)
     , max_iter(max_iter_)
-    , sym(sym_)
-    , logger_ptr(logger)
+    , sym(Symmetry::UPPER)
+    , logger_ptr(nullptr)
   {
     delta.setOnes();
   }
@@ -359,6 +361,53 @@ struct RuizEquilibration
     return proxsuite::linalg::dense::temp_vec_req(tag, n + n_eq + n_in) &
            proxsuite::linalg::veg::dynstack::StackReq::with_len(tag, 3 * n);
   }
+
+  //auto stack_mut(proxsuite::linalg::veg::Vec<proxsuite::linalg::veg::mem::byte>
+  //    storage) -> proxsuite::linalg::veg::dynstack::DynStackMut
+  //  {
+  //    return {
+  //      proxsuite::linalg::veg::from_slice_mut,
+  //      storage.as_mut(),
+  //    };
+  //  }
+
+  void scale_qp(
+                SparseMat<T, I>& H,
+                VecRefMut<T> g,
+                SparseMat<T, I>& AT,
+                VecRefMut<T> b,
+                SparseMat<T, I>& CT,
+                VecRefMut<T> u,
+                VecRefMut<T> l,
+                bool execute_preconditioner,
+                const isize max_iter,
+                const T epsilon){
+      
+      //proxsuite::linalg::veg::Vec<proxsuite::linalg::veg::mem::byte>
+      //storage;
+      //proxsuite::linalg::veg::dynstack::DynStackMut stack = stack_mut(storage);
+      SparseMat<T, I> H_triu =
+        (H).template triangularView<Eigen::Upper>();
+      sparse::QpViewMut<T, I> qp_scaled = {
+            { proxsuite::linalg::sparse::from_eigen, H_triu },
+            { proxsuite::linalg::sparse::from_eigen, g },
+            { proxsuite::linalg::sparse::from_eigen, AT},
+            { proxsuite::linalg::sparse::from_eigen, b },
+            { proxsuite::linalg::sparse::from_eigen,CT},
+            { proxsuite::linalg::sparse::from_eigen, l },
+            { proxsuite::linalg::sparse::from_eigen, u }
+          };
+      VEG_MAKE_STACK(stack,
+                    scale_qp_in_place_req(
+                    proxsuite::linalg::veg::Tag<T>{}, qp_scaled.H.nrows(), qp_scaled.AT.ncols(), qp_scaled.CT.ncols()));
+      std::cout << "g before " << g << std::endl;
+      std::cout << "C before " << AT << std::endl;
+      scale_qp_in_place(qp_scaled,execute_preconditioner,max_iter,epsilon,stack);
+      std::cout << "g after " << g << std::endl;
+      std::cout << "C after " << AT << std::endl;
+  
+  }
+
 
   void scale_qp_in_place(QpViewMut<T, I> qp,
                          bool execute_preconditioner,

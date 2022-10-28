@@ -28,25 +28,32 @@ exposeSparseAlgorithms(pybind11::module_ m)
   proxsuite::proxqp::sparse::python::exposeSparseModel<T, I>(m);
   proxsuite::proxqp::sparse::python::exposeQpObjectSparse<T, I>(m);
   proxsuite::proxqp::sparse::python::solveSparseQp<T, I>(m);
+
+  proxsuite::proxqp::sparse::python::exposeRuiz<T, I>(m);
+  
 }
 
 template<typename T>
 void
 exposeDenseAlgorithms(pybind11::module_ m)
-{
+{ 
   proxsuite::proxqp::dense::python::exposeDenseModel<T>(m);
   proxsuite::proxqp::dense::python::exposeQpObjectDense<T>(m);
   proxsuite::proxqp::dense::python::solveDenseQp<T>(m);
+
+  proxsuite::proxqp::dense::python::exposeRuiz<T>(m);
 }
 
 template<typename T>
 void
 exposeDenseLinalg(pybind11::module_ m)
 {
-  proxsuite::linalg::dense::python::DenseIterativeSolve<T>(m);
+
+  proxsuite::linalg::dense::python::exposeDenseLDLT<T>(m); 
+  //proxsuite::linalg::dense::python::DenseIterativeSolve<T>(m);
 }
 
-
+/*
 template<typename T,typename I>
 void
 exposeSparseLinalg(pybind11::module_ m)
@@ -56,14 +63,13 @@ exposeSparseLinalg(pybind11::module_ m)
   
 }
 
-
 template<typename T,typename I>
 void
 exposeSparseSocp(pybind11::module_ m)
 {
   proxsuite::proxqp::sparse::python::exposeSocpObjectSparse<T,I>(m);
 }
-
+*/
 template<typename T>
 void
 exposeDenseSocp(pybind11::module_ m)
@@ -85,17 +91,17 @@ PYBIND11_MODULE(PYTHON_MODULE_NAME, m)
         proxsuite
     )pbdoc";
 
-  //pybind11::module_ linalg_module = m.def_submodule("linalg","The linear system solvers of the proxSuite library");
-  //exposeDenseLinalg<proxsuite::proxqp::f64>(linalg_module);
+  pybind11::module_ linalg_module = m.def_submodule("linalg","The linear system solvers of the proxSuite library");
+  exposeDenseLinalg<proxsuite::proxqp::f64>(linalg_module);
   //exposeSparseLinalg<proxsuite::proxqp::f64,int32_t>(linalg_module);
-  pybind11::module_ socp_module = m.def_submodule("proxsocp","The proxSocp solvers of the proxSuite library");
   
-
+  
+  pybind11::module_ socp_module = m.def_submodule("proxsocp","The proxSocp solvers of the proxSuite library");
   pybind11::module_ dense_socp_module =
     socp_module.def_submodule("dense", "Dense solver of proxSOCP");
-  pybind11::module_ sparse_socp_module =
-    socp_module.def_submodule("sparse", "Sparse solver of proxSOCP");
-  exposeSparseSocp<c_float,c_int>(sparse_socp_module);
+  //pybind11::module_ sparse_socp_module =
+  //  socp_module.def_submodule("sparse", "Sparse solver of proxSOCP");
+  //exposeSparseSocp<c_float,c_int>(sparse_socp_module);
   exposeDenseSocp<proxsuite::proxqp::f64>(dense_socp_module);
 
   pybind11::module_ proxqp_module =

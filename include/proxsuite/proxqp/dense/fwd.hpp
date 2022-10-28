@@ -25,6 +25,8 @@ using VecRefMut = Eigen::Ref<Eigen::Matrix<T, DYN, 1>>;
 template<typename T>
 using MatRef = Eigen::Ref<Eigen::Matrix<T, DYN, DYN> const>;
 template<typename T>
+using MatRefMut = Eigen::Ref<Eigen::Matrix<T, DYN, DYN,layout>>;
+template<typename T>
 using Mat = Eigen::Matrix<T, DYN, DYN, layout>;
 template<typename T>
 using Vec = Eigen::Matrix<T, DYN, 1>;

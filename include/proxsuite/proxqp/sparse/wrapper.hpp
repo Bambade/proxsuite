@@ -105,7 +105,7 @@ struct QP
     , settings()
     , model(_dim, _n_eq, _n_in)
     , work()
-    , ruiz(_dim, _n_eq + _n_in, 1e-3, 10, preconditioner::Symmetry::UPPER)
+    , ruiz(_dim, _n_eq + _n_in, 1e-3, 10) //, preconditioner::Symmetry::UPPER)
   {
 
     work.timer.stop();
