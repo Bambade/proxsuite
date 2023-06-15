@@ -45,10 +45,10 @@ DOCTEST_TEST_CASE("ruiz preconditioner")
           qp_random.u);
 
   auto head = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>(
-    qp.ruiz.delta.head(dim).asDiagonal());
+    qp.equilibrator.delta.head(dim).asDiagonal());
   auto tail = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>(
-    qp.ruiz.delta.tail(n_eq).asDiagonal());
-  auto c = qp.ruiz.c;
+    qp.equilibrator.delta.tail(n_eq).asDiagonal());
+  auto c = qp.equilibrator.c;
 
   auto const& H = qp_random.H;
   auto const& g = qp_random.g;

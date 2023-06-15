@@ -20,6 +20,7 @@
 #include <proxsuite/proxqp/utils/prints.hpp>
 #include <proxsuite/proxqp/settings.hpp>
 #include <proxsuite/proxqp/dense/preconditioner/ruiz.hpp>
+#include <proxsuite/proxqp/dense/preconditioner/bunch.hpp>
 
 // #include <fmt/format.h>
 // #include <fmt/ostream.h>
@@ -120,7 +121,7 @@ save_data(const std::string& filename, const ::Eigen::MatrixBase<Derived>& mat)
  * @param qpmodel QP problem model as defined by the user (without any scaling
  * performed).
  * @param qpresults solver results.
- * @param ruiz ruiz preconditioner.
+ * @param equilibrator preconditioner chosen by the user.
  * @param primal_feasibility_lhs primal infeasibility.
  * @param primal_feasibility_eq_rhs_0 scalar variable used when using a relative
  * stopping criterion.
@@ -131,12 +132,12 @@ save_data(const std::string& filename, const ::Eigen::MatrixBase<Derived>& mat)
  * @param primal_feasibility_in_lhs scalar variable used when using a relative
  * stopping criterion.
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 void
 global_primal_residual(const Model<T>& qpmodel,
                        const Results<T>& qpresults,
                        Workspace<T>& qpwork,
-                       const preconditioner::RuizEquilibration<T>& ruiz,
+                       const Preconditioner& equilibrator,
                        T& primal_feasibility_lhs,
                        T& primal_feasibility_eq_rhs_0,
                        T& primal_feasibility_in_rhs_0,
@@ -159,10 +160,10 @@ global_primal_residual(const Model<T>& qpmodel,
   qpwork.primal_residual_eq_scaled.noalias() = qpwork.A_scaled * qpresults.x;
   qpwork.primal_residual_in_scaled_up.noalias() = qpwork.C_scaled * qpresults.x;
 
-  ruiz.unscale_primal_residual_in_place_eq(
+  equilibrator.unscale_primal_residual_in_place_eq(
     VectorViewMut<T>{ from_eigen, qpwork.primal_residual_eq_scaled });
   primal_feasibility_eq_rhs_0 = infty_norm(qpwork.primal_residual_eq_scaled);
-  ruiz.unscale_primal_residual_in_place_in(
+  equilibrator.unscale_primal_residual_in_place_in(
     VectorViewMut<T>{ from_eigen, qpwork.primal_residual_in_scaled_up });
   primal_feasibility_in_rhs_0 = infty_norm(qpwork.primal_residual_in_scaled_up);
 
@@ -176,7 +177,7 @@ global_primal_residual(const Model<T>& qpmodel,
   primal_feasibility_lhs =
     std::max(primal_feasibility_eq_lhs, primal_feasibility_in_lhs);
 
-  ruiz.scale_primal_residual_in_place_eq(
+  equilibrator.scale_primal_residual_in_place_eq(
     VectorViewMut<T>{ from_eigen, qpwork.primal_residual_eq_scaled });
 }
 
@@ -185,7 +186,7 @@ global_primal_residual(const Model<T>& qpmodel,
  *
  * @param qpwork solver workspace.
  * @param qpsettings solver settings.
- * @param ruiz ruiz preconditioner.
+ * @param equilibrator preconditioner chosen by the user.
  * @param ATdy variable used for testing global primal infeasibility criterion
  * is satisfied.
  * @param CTdz variable used for testing global primal infeasibility criterion
@@ -195,16 +196,15 @@ global_primal_residual(const Model<T>& qpmodel,
  * @param dz variable used for testing global primal infeasibility criterion is
  * satisfied.
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 bool
-global_primal_residual_infeasibility(
-  VectorViewMut<T> ATdy,
-  VectorViewMut<T> CTdz,
-  VectorViewMut<T> dy,
-  VectorViewMut<T> dz,
-  Workspace<T>& qpwork,
-  const Settings<T>& qpsettings,
-  const preconditioner::RuizEquilibration<T>& ruiz)
+global_primal_residual_infeasibility(VectorViewMut<T> ATdy,
+                                     VectorViewMut<T> CTdz,
+                                     VectorViewMut<T> dy,
+                                     VectorViewMut<T> dz,
+                                     Workspace<T>& qpwork,
+                                     const Settings<T>& qpsettings,
+                                     const Preconditioner& equilibrator)
 {
 
   // The problem is primal infeasible if the following four conditions hold:
@@ -220,19 +220,20 @@ global_primal_residual_infeasibility(
   if (!res) {
     return res;
   }
-  ruiz.unscale_dual_residual_in_place(ATdy);
-  ruiz.unscale_dual_residual_in_place(CTdz);
+  equilibrator.unscale_dual_residual_in_place(ATdy);
+  equilibrator.unscale_dual_residual_in_place(CTdz);
   T eq_inf = dy.to_eigen().dot(qpwork.b_scaled);
   T in_inf = helpers::positive_part(dz.to_eigen()).dot(qpwork.u_scaled) -
              helpers::negative_part(dz.to_eigen()).dot(qpwork.l_scaled);
-  ruiz.unscale_dual_in_place_eq(dy);
-  ruiz.unscale_dual_in_place_in(dz);
+  equilibrator.unscale_dual_in_place_eq(dy);
+  equilibrator.unscale_dual_in_place_in(dz);
 
   T bound_y = qpsettings.eps_primal_inf * infty_norm(dy.to_eigen());
   T bound_z = qpsettings.eps_primal_inf * infty_norm(dz.to_eigen());
 
-  res = infty_norm(ATdy.to_eigen()) <= bound_y && eq_inf <= -bound_y &&
-        infty_norm(CTdz.to_eigen()) <= bound_z && in_inf <= -bound_z;
+  res = infty_norm(ATdy.to_eigen()) <= std::max(bound_y, bound_z) &&
+        eq_inf <= -bound_y && infty_norm(CTdz.to_eigen()) <= bound_z &&
+        in_inf <= -bound_z;
   return res;
 }
 
@@ -243,7 +244,7 @@ global_primal_residual_infeasibility(
  * @param qpsettings solver settings.
  * @param qpmodel QP problem model as defined by the user (without any scaling
  * performed).
- * @param ruiz ruiz preconditioner.
+ * @param equilibrator preconditioner chosen by the user.
  * @param Adx variable used for testing global dual infeasibility criterion is
  * satisfied.
  * @param Cdx variable used for testing global dual infeasibility criterion is
@@ -253,17 +254,16 @@ global_primal_residual_infeasibility(
  * @param dx variable used for testing global dual infeasibility criterion is
  * satisfied.
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 bool
-global_dual_residual_infeasibility(
-  VectorViewMut<T> Adx,
-  VectorViewMut<T> Cdx,
-  VectorViewMut<T> Hdx,
-  VectorViewMut<T> dx,
-  Workspace<T>& qpwork,
-  const Settings<T>& qpsettings,
-  const Model<T>& qpmodel,
-  const preconditioner::RuizEquilibration<T>& ruiz)
+global_dual_residual_infeasibility(VectorViewMut<T> Adx,
+                                   VectorViewMut<T> Cdx,
+                                   VectorViewMut<T> Hdx,
+                                   VectorViewMut<T> dx,
+                                   Workspace<T>& qpwork,
+                                   const Settings<T>& qpsettings,
+                                   const Model<T>& qpmodel,
+                                   const Preconditioner& equilibrator)
 {
 
   // The problem is dual infeasible the two following conditions hold:
@@ -280,11 +280,11 @@ global_dual_residual_infeasibility(
   // ||unscaled(Hdx)|| <= c eps_d_inf * ||unscaled(dx)||  and  q^Tdx <= -c
   // eps_d_inf  ||unscaled(dx)|| the variables in
   // entry are changed in place
-  ruiz.unscale_dual_residual_in_place(Hdx);
-  ruiz.unscale_primal_residual_in_place_eq(Adx);
-  ruiz.unscale_primal_residual_in_place_in(Cdx);
+  equilibrator.unscale_dual_residual_in_place(Hdx);
+  equilibrator.unscale_primal_residual_in_place_eq(Adx);
+  equilibrator.unscale_primal_residual_in_place_in(Cdx);
   T gdx = (dx.to_eigen()).dot(qpwork.g_scaled);
-  ruiz.unscale_primal_in_place(dx);
+  equilibrator.unscale_primal_in_place(dx);
 
   T bound = infty_norm(dx.to_eigen()) * qpsettings.eps_dual_inf;
   T bound_neg = -bound;
@@ -302,8 +302,8 @@ global_dual_residual_infeasibility(
     }
   }
 
-  bound *= ruiz.c;
-  bound_neg *= ruiz.c;
+  bound *= equilibrator.c;
+  bound_neg *= equilibrator.c;
   bool second_cond_alt1 =
     infty_norm(Hdx.to_eigen()) <= bound && gdx <= bound_neg;
   bound_neg *= qpsettings.eps_dual_inf;
@@ -317,7 +317,7 @@ global_dual_residual_infeasibility(
  *
  * @param qpwork solver workspace.
  * @param qpresults solver results.
- * @param ruiz ruiz preconditioner.
+ * @param equilibrator preconditioner chosen by the user.
  * @param dual_feasibility_lhs primal infeasibility.
  * @param primal_feasibility_eq_rhs_0 scalar variable used when using a relative
  * stopping criterion.
@@ -328,12 +328,12 @@ global_dual_residual_infeasibility(
  * @param dual_feasibility_rhs_3 scalar variable used when using a relative
  * stopping criterion.
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 void
 global_dual_residual(Results<T>& qpresults,
                      Workspace<T>& qpwork,
                      const Model<T>& qpmodel,
-                     const preconditioner::RuizEquilibration<T>& ruiz,
+                     const Preconditioner& equilibrator,
                      T& dual_feasibility_lhs,
                      T& dual_feasibility_rhs_0,
                      T& dual_feasibility_rhs_1,
@@ -352,46 +352,51 @@ global_dual_residual(Results<T>& qpresults,
   qpwork.CTz.noalias() =
     qpwork.H_scaled.template selfadjointView<Eigen::Lower>() * qpresults.x;
   qpwork.dual_residual_scaled += qpwork.CTz;
-  ruiz.unscale_dual_residual_in_place(
+  equilibrator.unscale_dual_residual_in_place(
     VectorViewMut<T>{ from_eigen, qpwork.CTz }); // contains unscaled Hx
   dual_feasibility_rhs_0 = infty_norm(qpwork.CTz);
 
-  ruiz.unscale_primal_in_place(VectorViewMut<T>{ from_eigen, qpresults.x });
+  equilibrator.unscale_primal_in_place(
+    VectorViewMut<T>{ from_eigen, qpresults.x });
   duality_gap = (qpmodel.g).dot(qpresults.x);
   rhs_duality_gap = std::fabs(duality_gap);
   const T xHx = (qpwork.CTz).dot(qpresults.x);
   duality_gap += xHx; // contains now xHx+g.Tx
   rhs_duality_gap = std::max(rhs_duality_gap, std::abs(xHx));
 
-  ruiz.scale_primal_in_place(VectorViewMut<T>{ from_eigen, qpresults.x });
+  equilibrator.scale_primal_in_place(
+    VectorViewMut<T>{ from_eigen, qpresults.x });
 
   qpwork.CTz.noalias() = qpwork.A_scaled.transpose() * qpresults.y;
   qpwork.dual_residual_scaled += qpwork.CTz;
-  ruiz.unscale_dual_residual_in_place(
+  equilibrator.unscale_dual_residual_in_place(
     VectorViewMut<T>{ from_eigen, qpwork.CTz });
   dual_feasibility_rhs_1 = infty_norm(qpwork.CTz);
 
   qpwork.CTz.noalias() = qpwork.C_scaled.transpose() * qpresults.z;
   qpwork.dual_residual_scaled += qpwork.CTz;
-  ruiz.unscale_dual_residual_in_place(
+  equilibrator.unscale_dual_residual_in_place(
     VectorViewMut<T>{ from_eigen, qpwork.CTz });
   dual_feasibility_rhs_3 = infty_norm(qpwork.CTz);
 
-  ruiz.unscale_dual_residual_in_place(
+  equilibrator.unscale_dual_residual_in_place(
     VectorViewMut<T>{ from_eigen, qpwork.dual_residual_scaled });
 
   dual_feasibility_lhs = infty_norm(qpwork.dual_residual_scaled);
 
-  ruiz.scale_dual_residual_in_place(
+  equilibrator.scale_dual_residual_in_place(
     VectorViewMut<T>{ from_eigen, qpwork.dual_residual_scaled });
 
-  ruiz.unscale_dual_in_place_eq(VectorViewMut<T>{ from_eigen, qpresults.y });
+  equilibrator.unscale_dual_in_place_eq(
+    VectorViewMut<T>{ from_eigen, qpresults.y });
   const T by = (qpmodel.b).dot(qpresults.y);
   rhs_duality_gap = std::max(rhs_duality_gap, std::abs(by));
   duality_gap += by;
-  ruiz.scale_dual_in_place_eq(VectorViewMut<T>{ from_eigen, qpresults.y });
+  equilibrator.scale_dual_in_place_eq(
+    VectorViewMut<T>{ from_eigen, qpresults.y });
 
-  ruiz.unscale_dual_in_place_in(VectorViewMut<T>{ from_eigen, qpresults.z });
+  equilibrator.unscale_dual_in_place_in(
+    VectorViewMut<T>{ from_eigen, qpresults.z });
 
   const T zu =
     helpers::select(qpwork.active_set_up, qpresults.z, 0)
@@ -405,7 +410,8 @@ global_dual_residual(Results<T>& qpresults,
   rhs_duality_gap = std::max(rhs_duality_gap, std::abs(zl));
   duality_gap += zl;
 
-  ruiz.scale_dual_in_place_in(VectorViewMut<T>{ from_eigen, qpresults.z });
+  equilibrator.scale_dual_in_place_in(
+    VectorViewMut<T>{ from_eigen, qpresults.z });
 }
 
 } // namespace dense

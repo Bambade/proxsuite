@@ -580,16 +580,16 @@ primal_dual_semi_smooth_newton_step(const Settings<T>& qpsettings,
  * performed).
  * @param qpsettings solver settings.
  * @param qpresults solver results.
- * @param ruiz ruiz preconditioner.
+ * @param equilibrator preconditioner chosen by the user.
  * @param eps_int accuracy required for solving the subproblem.
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 void
 primal_dual_newton_semi_smooth(const Settings<T>& qpsettings,
                                const Model<T>& qpmodel,
                                Results<T>& qpresults,
                                Workspace<T>& qpwork,
-                               preconditioner::RuizEquilibration<T>& ruiz,
+                               Preconditioner& equilibrator,
                                T eps_int)
 {
 
@@ -718,7 +718,7 @@ primal_dual_newton_semi_smooth(const Settings<T>& qpsettings,
                                            VectorViewMut<T>{ from_eigen, dz },
                                            qpwork,
                                            qpsettings,
-                                           ruiz);
+                                           equilibrator);
 
     bool is_dual_infeasible =
       global_dual_residual_infeasibility(VectorViewMut<T>{ from_eigen, Adx },
@@ -728,7 +728,7 @@ primal_dual_newton_semi_smooth(const Settings<T>& qpsettings,
                                          qpwork,
                                          qpsettings,
                                          qpmodel,
-                                         ruiz);
+                                         equilibrator);
 
     if (is_primal_infeasible) {
       qpresults.info.status = QPSolverOutput::PROXQP_PRIMAL_INFEASIBLE;
@@ -767,16 +767,16 @@ primal_dual_newton_semi_smooth(const Settings<T>& qpsettings,
  * performed).
  * @param qpsettings solver settings.
  * @param qpresults solver results.
- * @param ruiz ruiz preconditioner.
+ * @param equilibrator preconditioner chosen by the user.
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 void
 qp_solve( //
   const Settings<T>& qpsettings,
   const Model<T>& qpmodel,
   Results<T>& qpresults,
   Workspace<T>& qpwork,
-  preconditioner::RuizEquilibration<T>& ruiz)
+  Preconditioner& equilibrator)
 {
   /*** TEST WITH MATRIX FULL OF NAN FOR DEBUG
     static constexpr Layout layout = rowmajor;
@@ -806,11 +806,11 @@ qp_solve( //
         // keep solutions but restart workspace and results
         qpwork.cleanup();
         qpresults.cold_start(qpsettings);
-        ruiz.scale_primal_in_place(
+        equilibrator.scale_primal_in_place(
           { proxsuite::proxqp::from_eigen, qpresults.x });
-        ruiz.scale_dual_in_place_eq(
+        equilibrator.scale_dual_in_place_eq(
           { proxsuite::proxqp::from_eigen, qpresults.y });
-        ruiz.scale_dual_in_place_in(
+        equilibrator.scale_dual_in_place_in(
           { proxsuite::proxqp::from_eigen, qpresults.z });
         break;
       }
@@ -824,24 +824,24 @@ qp_solve( //
         qpresults.cold_start(
           qpsettings); // because there was already a solve,
                        // precond was already computed if set so
-        ruiz.scale_primal_in_place(
+        equilibrator.scale_primal_in_place(
           { proxsuite::proxqp::from_eigen,
             qpresults
               .x }); // it contains the value given in entry for warm start
-        ruiz.scale_dual_in_place_eq(
+        equilibrator.scale_dual_in_place_eq(
           { proxsuite::proxqp::from_eigen, qpresults.y });
-        ruiz.scale_dual_in_place_in(
+        equilibrator.scale_dual_in_place_in(
           { proxsuite::proxqp::from_eigen, qpresults.z });
         break;
       }
       case InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT: {
         // keep workspace and results solutions except statistics
         qpresults.cleanup_statistics();
-        ruiz.scale_primal_in_place(
+        equilibrator.scale_primal_in_place(
           { proxsuite::proxqp::from_eigen, qpresults.x });
-        ruiz.scale_dual_in_place_eq(
+        equilibrator.scale_dual_in_place_eq(
           { proxsuite::proxqp::from_eigen, qpresults.y });
-        ruiz.scale_dual_in_place_in(
+        equilibrator.scale_dual_in_place_in(
           { proxsuite::proxqp::from_eigen, qpresults.z });
         break;
       }
@@ -856,7 +856,10 @@ qp_solve( //
       qpwork.u_scaled = qpmodel.u;
       qpwork.l_scaled = qpmodel.l;
       proxsuite::proxqp::dense::setup_equilibration(
-        qpwork, qpsettings, ruiz, false); // reuse previous equilibration
+        qpwork,
+        qpsettings,
+        equilibrator,
+        false); // reuse previous equilibration
       proxsuite::proxqp::dense::setup_factorization(qpwork, qpmodel, qpresults);
     }
     switch (qpsettings.initial_guess) {
@@ -914,14 +917,14 @@ qp_solve( //
       }
       case InitialGuessStatus::COLD_START_WITH_PREVIOUS_RESULT: {
         //!\ TODO in a quicker way
-        ruiz.scale_primal_in_place(
+        equilibrator.scale_primal_in_place(
           { proxsuite::proxqp::from_eigen,
             qpresults
               .x }); // meaningful for when there is an upate of the model and
                      // one wants to warm start with previous result
-        ruiz.scale_dual_in_place_eq(
+        equilibrator.scale_dual_in_place_eq(
           { proxsuite::proxqp::from_eigen, qpresults.y });
-        ruiz.scale_dual_in_place_in(
+        equilibrator.scale_dual_in_place_in(
           { proxsuite::proxqp::from_eigen, qpresults.z });
         setup_factorization(qpwork, qpmodel, qpresults);
         qpwork.n_c = 0;
@@ -941,11 +944,11 @@ qp_solve( //
       }
       case InitialGuessStatus::WARM_START: {
         //!\ TODO in a quicker way
-        ruiz.scale_primal_in_place(
+        equilibrator.scale_primal_in_place(
           { proxsuite::proxqp::from_eigen, qpresults.x });
-        ruiz.scale_dual_in_place_eq(
+        equilibrator.scale_dual_in_place_eq(
           { proxsuite::proxqp::from_eigen, qpresults.y });
-        ruiz.scale_dual_in_place_in(
+        equilibrator.scale_dual_in_place_in(
           { proxsuite::proxqp::from_eigen, qpresults.z });
         setup_factorization(qpwork, qpmodel, qpresults);
         qpwork.n_c = 0;
@@ -961,14 +964,14 @@ qp_solve( //
       }
       case InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT: {
 
-        ruiz.scale_primal_in_place(
+        equilibrator.scale_primal_in_place(
           { proxsuite::proxqp::from_eigen,
             qpresults
               .x }); // meaningful for when there is an upate of the model and
                      // one wants to warm start with previous result
-        ruiz.scale_dual_in_place_eq(
+        equilibrator.scale_dual_in_place_eq(
           { proxsuite::proxqp::from_eigen, qpresults.y });
-        ruiz.scale_dual_in_place_in(
+        equilibrator.scale_dual_in_place_in(
           { proxsuite::proxqp::from_eigen, qpresults.z });
         if (qpwork.refactorize) { // refactorization only when one of the
                                   // matrices has changed or one proximal
@@ -1015,7 +1018,7 @@ qp_solve( //
     global_primal_residual(qpmodel,
                            qpresults,
                            qpwork,
-                           ruiz,
+                           equilibrator,
                            primal_feasibility_lhs,
                            primal_feasibility_eq_rhs_0,
                            primal_feasibility_in_rhs_0,
@@ -1025,7 +1028,7 @@ qp_solve( //
     global_dual_residual(qpresults,
                          qpwork,
                          qpmodel,
-                         ruiz,
+                         equilibrator,
                          dual_feasibility_lhs,
                          dual_feasibility_rhs_0,
                          dual_feasibility_rhs_1,
@@ -1061,10 +1064,11 @@ qp_solve( //
 
     if (qpsettings.verbose) {
 
-      ruiz.unscale_primal_in_place(VectorViewMut<T>{ from_eigen, qpresults.x });
-      ruiz.unscale_dual_in_place_eq(
+      equilibrator.unscale_primal_in_place(
+        VectorViewMut<T>{ from_eigen, qpresults.x });
+      equilibrator.unscale_dual_in_place_eq(
         VectorViewMut<T>{ from_eigen, qpresults.y });
-      ruiz.unscale_dual_in_place_in(
+      equilibrator.unscale_dual_in_place_in(
         VectorViewMut<T>{ from_eigen, qpresults.z });
 
       {
@@ -1088,9 +1092,12 @@ qp_solve( //
                 << " | duality gap=" << qpresults.info.duality_gap
                 << " | mu_in=" << qpresults.info.mu_in
                 << " | rho=" << qpresults.info.rho << std::endl;
-      ruiz.scale_primal_in_place(VectorViewMut<T>{ from_eigen, qpresults.x });
-      ruiz.scale_dual_in_place_eq(VectorViewMut<T>{ from_eigen, qpresults.y });
-      ruiz.scale_dual_in_place_in(VectorViewMut<T>{ from_eigen, qpresults.z });
+      equilibrator.scale_primal_in_place(
+        VectorViewMut<T>{ from_eigen, qpresults.x });
+      equilibrator.scale_dual_in_place_eq(
+        VectorViewMut<T>{ from_eigen, qpresults.y });
+      equilibrator.scale_dual_in_place_in(
+        VectorViewMut<T>{ from_eigen, qpresults.z });
     }
     if (is_primal_feasible && is_dual_feasible) {
       if (qpsettings.check_duality_gap) {
@@ -1113,7 +1120,7 @@ qp_solve( //
 
     // primal dual version from gill and robinson
 
-    ruiz.scale_primal_residual_in_place_in(VectorViewMut<T>{
+    equilibrator.scale_primal_residual_in_place_in(VectorViewMut<T>{
       from_eigen,
       qpwork.primal_residual_in_scaled_up }); // contains now scaled(Cx)
     qpwork.primal_residual_in_scaled_up +=
@@ -1133,7 +1140,7 @@ qp_solve( //
     qpwork.primal_residual_in_scaled_low -=
       qpwork.l_scaled; // contains now scaled(Cx-l+z_prev*mu_in)
     primal_dual_newton_semi_smooth(
-      qpsettings, qpmodel, qpresults, qpwork, ruiz, bcl_eta_in);
+      qpsettings, qpmodel, qpresults, qpwork, equilibrator, bcl_eta_in);
 
     if (qpresults.info.status == QPSolverOutput::PROXQP_PRIMAL_INFEASIBLE ||
         qpresults.info.status == QPSolverOutput::PROXQP_DUAL_INFEASIBLE) {
@@ -1149,7 +1156,7 @@ qp_solve( //
     global_primal_residual(qpmodel,
                            qpresults,
                            qpwork,
-                           ruiz,
+                           equilibrator,
                            primal_feasibility_lhs_new,
                            primal_feasibility_eq_rhs_0,
                            primal_feasibility_in_rhs_0,
@@ -1168,7 +1175,7 @@ qp_solve( //
       global_dual_residual(qpresults,
                            qpwork,
                            qpmodel,
-                           ruiz,
+                           equilibrator,
                            dual_feasibility_lhs_new,
                            dual_feasibility_rhs_0,
                            dual_feasibility_rhs_1,
@@ -1233,7 +1240,7 @@ qp_solve( //
     global_dual_residual(qpresults,
                          qpwork,
                          qpmodel,
-                         ruiz,
+                         equilibrator,
                          dual_feasibility_lhs_new,
                          dual_feasibility_rhs_0,
                          dual_feasibility_rhs_1,
@@ -1274,9 +1281,12 @@ qp_solve( //
     qpresults.info.mu_in_inv = new_bcl_mu_in_inv;
   }
 
-  ruiz.unscale_primal_in_place(VectorViewMut<T>{ from_eigen, qpresults.x });
-  ruiz.unscale_dual_in_place_eq(VectorViewMut<T>{ from_eigen, qpresults.y });
-  ruiz.unscale_dual_in_place_in(VectorViewMut<T>{ from_eigen, qpresults.z });
+  equilibrator.unscale_primal_in_place(
+    VectorViewMut<T>{ from_eigen, qpresults.x });
+  equilibrator.unscale_dual_in_place_eq(
+    VectorViewMut<T>{ from_eigen, qpresults.y });
+  equilibrator.unscale_dual_in_place_in(
+    VectorViewMut<T>{ from_eigen, qpresults.z });
 
   {
     // EigenAllowAlloc _{};

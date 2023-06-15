@@ -1783,9 +1783,9 @@ DOCTEST_TEST_CASE(
   auto z = qp.results.z;
   // std::cout << "after scaling x " << x <<  " qp.results.x " << qp.results.x
   // << std::endl;
-  qp2.ruiz.scale_primal_in_place({ from_eigen, x });
-  qp2.ruiz.scale_dual_in_place_eq({ from_eigen, y });
-  qp2.ruiz.scale_dual_in_place_in({ from_eigen, z });
+  qp2.equilibrator.scale_primal_in_place({ from_eigen, x });
+  qp2.equilibrator.scale_dual_in_place_eq({ from_eigen, y });
+  qp2.equilibrator.scale_dual_in_place_in({ from_eigen, z });
   // std::cout << "after scaling x " << x <<  " qp.results.x " << qp.results.x
   // << std::endl;
   qp2.solve(x, y, z);
@@ -1905,9 +1905,9 @@ DOCTEST_TEST_CASE(
   auto z = qp.results.z;
   // std::cout << "after scaling x " << x <<  " qp.results.x " << qp.results.x
   // << std::endl;
-  qp2.ruiz.scale_primal_in_place({ from_eigen, x });
-  qp2.ruiz.scale_dual_in_place_eq({ from_eigen, y });
-  qp2.ruiz.scale_dual_in_place_in({ from_eigen, z });
+  qp2.equilibrator.scale_primal_in_place({ from_eigen, x });
+  qp2.equilibrator.scale_dual_in_place_eq({ from_eigen, y });
+  qp2.equilibrator.scale_dual_in_place_in({ from_eigen, z });
   // std::cout << "after scaling x " << x <<  " qp.results.x " << qp.results.x
   // << std::endl;
   qp2.solve(x, y, z);
@@ -2009,8 +2009,8 @@ DOCTEST_TEST_CASE(
   std::cout << "dual residual: " << dua_res << std::endl;
   std::cout << "total number of iteration: " << qp.results.info.iter
             << std::endl;
-  std::cout << "ruiz vector : " << qp.ruiz.delta << " ruiz scalar factor "
-            << qp.ruiz.c << std::endl;
+  std::cout << "equilibrator vector : " << qp.equilibrator.delta
+            << " equilibrator scalar factor " << qp.equilibrator.c << std::endl;
   std::cout << "setup timing " << qp.results.info.setup_time << " solve time "
             << qp.results.info.solve_time << std::endl;
 
@@ -2045,8 +2045,9 @@ DOCTEST_TEST_CASE(
   std::cout << "dual residual: " << dua_res << std::endl;
   std::cout << "total number of iteration: " << qp2.results.info.iter
             << std::endl;
-  std::cout << "ruiz vector : " << qp2.ruiz.delta << " ruiz scalar factor "
-            << qp2.ruiz.c << std::endl;
+  std::cout << "equilibrator vector : " << qp2.equilibrator.delta
+            << " equilibrator scalar factor " << qp2.equilibrator.c
+            << std::endl;
   std::cout << "setup timing " << qp2.results.info.setup_time << " solve time "
             << qp2.results.info.solve_time << std::endl;
 }
@@ -2187,8 +2188,9 @@ DOCTEST_TEST_CASE(
   std::cout << "dual residual: " << dua_res << std::endl;
   std::cout << "total number of iteration: " << qp2.results.info.iter
             << std::endl;
-  std::cout << "ruiz vector : " << qp2.ruiz.delta << " ruiz scalar factor "
-            << qp2.ruiz.c << std::endl;
+  std::cout << "equilibrator vector : " << qp2.equilibrator.delta
+            << " equilibrator scalar factor " << qp2.equilibrator.c
+            << std::endl;
   std::cout << "setup timing " << qp2.results.info.setup_time << " solve time "
             << qp2.results.info.solve_time << std::endl;
 }

@@ -13,6 +13,7 @@
 #include <proxsuite/proxqp/status.hpp>
 #include <proxsuite/proxqp/dense/fwd.hpp>
 #include <proxsuite/proxqp/dense/preconditioner/ruiz.hpp>
+#include <proxsuite/proxqp/dense/preconditioner/bunch.hpp>
 #include <chrono>
 #include <proxsuite/helpers/optional.hpp>
 
@@ -95,17 +96,17 @@ setup_factorization(Workspace<T>& qpwork,
  *
  * @param qpwork workspace of the solver.
  * @param qpsettings settings of the solver.
- * @param ruiz ruiz preconditioner.
- * @param execute_preconditioner boolean variable for executing or not the ruiz
+ * @param equilibrator preconditioner chosen by the user.
+ * @param execute_preconditioner boolean variable for executing or not the
  * preconditioner. If set to False, it uses the previous preconditioning
  * variables (initialized to the identity preconditioner if it is the first
  * scaling performed).
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 void
 setup_equilibration(Workspace<T>& qpwork,
                     const Settings<T>& qpsettings,
-                    preconditioner::RuizEquilibration<T>& ruiz,
+                    Preconditioner& equilibrator,
                     bool execute_preconditioner)
 {
 
@@ -120,11 +121,11 @@ setup_equilibration(Workspace<T>& qpwork,
     proxsuite::linalg::veg::from_slice_mut,
     qpwork.ldl_stack.as_mut(),
   };
-  ruiz.scale_qp_in_place(qp_scaled,
-                         execute_preconditioner,
-                         qpsettings.preconditioner_max_iter,
-                         qpsettings.preconditioner_accuracy,
-                         stack);
+  equilibrator.scale_qp_in_place(qp_scaled,
+                                 execute_preconditioner,
+                                 qpsettings.preconditioner_max_iter,
+                                 qpsettings.preconditioner_accuracy,
+                                 stack);
   qpwork.correction_guess_rhs_g = infty_norm(qpwork.g_scaled);
 }
 
@@ -280,12 +281,12 @@ update(optional<MatRef<T>> H,
  * @param qpsettings solver settings.
  * @param qpmodel solver model.
  * @param qpresults solver result.
- * @param ruiz ruiz preconditioner.
+ * @param equilibrator preconditioner chosen by the user.
  * @param preconditioner_status bool variable for deciding whether executing the
  * preconditioning algorithm, or keeping previous preconditioning variables, or
  * using the identity preconditioner (i.e., no preconditioner).
  */
-template<typename T>
+template<typename T, typename Preconditioner>
 void
 setup( //
   optional<MatRef<T>> H,
@@ -299,7 +300,7 @@ setup( //
   Model<T>& qpmodel,
   Workspace<T>& qpwork,
   Results<T>& qpresults,
-  preconditioner::RuizEquilibration<T>& ruiz,
+  Preconditioner& equilibrator,
   PreconditionerStatus preconditioner_status)
 {
 
@@ -406,14 +407,14 @@ setup( //
 
   switch (preconditioner_status) {
     case PreconditionerStatus::EXECUTE:
-      setup_equilibration(qpwork, qpsettings, ruiz, true);
+      setup_equilibration(qpwork, qpsettings, equilibrator, true);
       break;
     case PreconditionerStatus::IDENTITY:
-      setup_equilibration(qpwork, qpsettings, ruiz, false);
+      setup_equilibration(qpwork, qpsettings, equilibrator, false);
       break;
     case PreconditionerStatus::KEEP:
       // keep previous one
-      setup_equilibration(qpwork, qpsettings, ruiz, false);
+      setup_equilibration(qpwork, qpsettings, equilibrator, false);
       break;
   }
 }

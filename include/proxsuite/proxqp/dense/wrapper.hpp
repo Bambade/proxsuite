@@ -10,6 +10,7 @@
 #include <proxsuite/proxqp/dense/solver.hpp>
 #include <proxsuite/proxqp/dense/helpers.hpp>
 #include <proxsuite/proxqp/dense/preconditioner/ruiz.hpp>
+#include <proxsuite/proxqp/dense/preconditioner/bunch.hpp>
 #include <chrono>
 
 namespace proxsuite {
@@ -84,7 +85,8 @@ struct QP
   Settings<T> settings;
   Model<T> model;
   Workspace<T> work;
-  preconditioner::RuizEquilibration<T> ruiz;
+  preconditioner::RuizEquilibration<T> equilibrator;
+  // preconditioner::BunchEquilibration<T> equilibrator;
   /*!
    * Default constructor using QP model dimensions.
    * @param _dim primal variable dimension.
@@ -96,7 +98,7 @@ struct QP
     , settings()
     , model(_dim, _n_eq, _n_in)
     , work(_dim, _n_eq, _n_in)
-    , ruiz(preconditioner::RuizEquilibration<T>{ _dim, _n_eq + _n_in })
+    , equilibrator(preconditioner::RuizEquilibration<T>{ _dim, _n_eq + _n_in })
   {
     work.timer.stop();
   }
@@ -238,7 +240,7 @@ struct QP
                                     model,
                                     work,
                                     results,
-                                    ruiz,
+                                    equilibrator,
                                     preconditioner_status);
     work.is_initialized = true;
     if (settings.compute_timings) {
@@ -315,7 +317,7 @@ struct QP
                                     model,
                                     work,
                                     results,
-                                    ruiz,
+                                    equilibrator,
                                     preconditioner_status);
 
     if (settings.compute_timings) {
@@ -333,7 +335,7 @@ struct QP
       model,
       results,
       work,
-      ruiz);
+      equilibrator);
   };
   /*!
    * Solves the QP problem using PROXQP algorithm using a warm start.
@@ -351,7 +353,7 @@ struct QP
       model,
       results,
       work,
-      ruiz);
+      equilibrator);
   };
   /*!
    * Clean-ups solver's results and workspace.

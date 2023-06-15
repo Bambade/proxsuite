@@ -102,7 +102,6 @@ struct Workspace
    */
   Workspace(isize dim = 0, isize n_eq = 0, isize n_in = 0)
     : //
-      // ruiz(preconditioner::RuizEquilibration<T>{dim, n_eq + n_in}),
     ldl{}
     , // old version with alloc
     H_scaled(dim, dim)
