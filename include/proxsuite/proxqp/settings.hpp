@@ -51,6 +51,14 @@ enum struct EigenValueEstimateMethodOption
                   // watch out, the last option is only available for dense
                   // matrices!
 };
+enum struct PenalizationUpdateRule
+{
+  BCL,// globalization strategy for updating mu parameter (aka proximal step size wrt the dual variable, see for references chap 17 "Numerical Optimization" from J. Nocedal and S. Wright)
+  Martinez,//classical strategy from AL theory (see for references: "Practical AL methods for constrained optimization" from J.M. Martinez Pérez)
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  QPDO // inspired by QPALM update rule strategy (see for references: "On a primal-dual Newton proximal method for quadratic programs" from A. De Marchi (section 6.2))
+  #endif
+};
 inline std::ostream&
 operator<<(std::ostream& os, const SparseBackend& sparse_backend)
 {
@@ -133,7 +141,7 @@ struct Settings
   T preconditioner_accuracy;
   T eps_primal_inf;
   T eps_dual_inf;
-  bool bcl_update;
+  PenalizationUpdateRule mu_update_rule;
   MeritFunctionType merit_function_type;
   T alpha_gpdal;
 
@@ -195,9 +203,7 @@ struct Settings
    * @param eps_primal_inf threshold under which primal infeasibility is
    * detected.
    * @param eps_dual_inf threshold under which dual infeasibility is detected.
-   * @param bcl_update if set to true, BCL strategy is used for calibrating
-   * mu_eq and mu_in. If set to false, a strategy developped by Martinez & al is
-   * used.
+   * @param mu_update_rule set the penalization strategy update rule for mu penalization parameter(aka proximal step size wrt the dual variable, by default it uses BCL globalization strategy)
    * @param sparse_backend Default automatic. User can choose between sparse
    * cholesky or iterative matrix free sparse backend.
    * @param primal_infeasibility_solving solves the closest primal feasible
@@ -251,7 +257,7 @@ struct Settings
     T preconditioner_accuracy = 1.e-3,
     T eps_primal_inf = 1.E-4,
     T eps_dual_inf = 1.E-4,
-    bool bcl_update = true,
+    PenalizationUpdateRule mu_update_rule = PenalizationUpdateRule::BCL,
     MeritFunctionType merit_function_type = MeritFunctionType::GPDAL,
     T alpha_gpdal = 0.95,
     SparseBackend sparse_backend = SparseBackend::Automatic,
@@ -293,7 +299,7 @@ struct Settings
     , preconditioner_accuracy(preconditioner_accuracy)
     , eps_primal_inf(eps_primal_inf)
     , eps_dual_inf(eps_dual_inf)
-    , bcl_update(bcl_update)
+    , mu_update_rule(mu_update_rule)
     , merit_function_type(merit_function_type)
     , alpha_gpdal(alpha_gpdal)
     , sparse_backend(sparse_backend)
@@ -311,6 +317,19 @@ struct Settings
       case DenseBackend::Automatic:
         default_rho = 1.E-6;
         break;
+    }
+    switch (mu_update_rule)
+    {
+    case PenalizationUpdateRule::BCL:
+      break;
+    case PenalizationUpdateRule::Martinez:
+      break;
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    case PenalizationUpdateRule::QPDO:
+      default_rho = 1.E-3;
+      break;
+    
+    #endif
     }
   }
 };
@@ -357,7 +376,7 @@ operator==(const Settings<T>& settings1, const Settings<T>& settings2)
     settings1.preconditioner_accuracy == settings2.preconditioner_accuracy &&
     settings1.eps_primal_inf == settings2.eps_primal_inf &&
     settings1.eps_dual_inf == settings2.eps_dual_inf &&
-    settings1.bcl_update == settings2.bcl_update &&
+    settings1.mu_update_rule == settings2.mu_update_rule &&
     settings1.merit_function_type == settings2.merit_function_type &&
     settings1.alpha_gpdal == settings2.alpha_gpdal &&
     settings1.sparse_backend == settings2.sparse_backend &&

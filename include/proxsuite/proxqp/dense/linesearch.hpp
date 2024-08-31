@@ -5,11 +5,11 @@
 #ifndef PROXSUITE_PROXQP_DENSE_LINESEARCH_HPP
 #define PROXSUITE_PROXQP_DENSE_LINESEARCH_HPP
 
+#include "proxsuite/proxqp/settings.hpp"
 #include "proxsuite/proxqp/dense/views.hpp"
 #include "proxsuite/proxqp/dense/model.hpp"
 #include "proxsuite/proxqp/results.hpp"
 #include "proxsuite/proxqp/dense/workspace.hpp"
-#include "proxsuite/proxqp/settings.hpp"
 #include <cmath>
 namespace proxsuite {
 namespace proxqp {
@@ -81,14 +81,93 @@ gpdal_derivative_results(const Model<T>& qpmodel,
     qpwork.primal_residual_in_scaled_up + qpwork.Cdx * alpha;
   qpwork.primal_residual_in_scaled_low_plus_alphaCdx =
     qpresults.si + qpwork.Cdx * alpha;
+  
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+      T a(qpwork.dw_aug.head(qpmodel.dim).dot(qpwork.Hdx) +
+      (qpresults.info.mu_eq_vec_inv.cwiseProduct(qpwork.Adx)).dot(qpwork.Adx) +
+      qpresults.info.rho *
+        qpwork.dw_aug.head(qpmodel.dim)
+          .squaredNorm()); // contains now: a = dx.dot(H.dot(dx)) + rho *
+                           // norm(dx)**2 + (mu_eq_inv) * norm(Adx)**2
 
+      qpwork.err.segment(qpmodel.dim, qpmodel.n_eq) =
+      qpwork.Adx -
+      qpresults.info.mu_eq_vec.cwiseProduct(qpwork.dw_aug.segment(qpmodel.dim, qpmodel.n_eq));
+      a +=
+        (qpwork.err.segment(qpmodel.dim, qpmodel.n_eq).cwiseProduct(qpresults.info
+          .mu_eq_vec_inv)).dot(qpwork.err.segment(qpmodel.dim, qpmodel.n_eq)); // contains now: a = dx.dot(H.dot(dx)) + rho * norm(dx)**2 +
+      // (mu_eq_inv) * norm(Adx)**2 + mu_eq_inv * norm(Adx-dy*mu_eq)**2
+
+      qpwork.err.head(qpmodel.dim) =
+      qpresults.info.rho * (qpresults.x - qpwork.x_prev) + qpwork.g_scaled;
+      T b(qpresults.x.dot(qpwork.Hdx) +
+          (qpwork.err.head(qpmodel.dim)).dot(qpwork.dw_aug.head(qpmodel.dim)) +
+          (qpresults.info.mu_eq_vec_inv.cwiseProduct(qpwork.Adx))
+              .dot(qpresults.se +
+                  (qpresults.y).cwiseProduct(qpresults.info.mu_eq_vec))); // contains now: b =
+                                                        // dx.dot(H.dot(x) +
+                                                        // rho*(x-xe) +  g)  +
+      // mu_eq_inv * Adx.dot(res_eq)
+      qpwork.rhs.segment(qpmodel.dim, qpmodel.n_eq) = qpresults.se;
+      b += (qpresults.info.mu_eq_vec_inv.cwiseProduct(qpwork.err.segment(qpmodel.dim, qpmodel.n_eq)))
+            .dot(qpwork.rhs.segment(
+              qpmodel.dim,
+              qpmodel.n_eq)); // contains now: b = dx.dot(H.dot(x) + rho*(x-xe)
+      // +  g)  + mu_eq_inv * Adx.dot(res_eq) + nu*mu_eq_inv *
+      // (Adx-dy*mu_eq).dot(res_eq-y*mu_eq)
+      // derive Cdx_act
+      qpwork.err.tail(n_constraints) =
+        ((qpwork.primal_residual_in_scaled_up_plus_alphaCdx.array() > T(0.)) ||
+        (qpwork.primal_residual_in_scaled_low_plus_alphaCdx.array() < T(0.)))
+          .select(qpwork.Cdx,
+                  Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
+
+      a += (qpresults.info.mu_in_vec_inv.cwiseProduct(qpwork.err.tail(n_constraints))).dot(qpwork.err.tail(n_constraints)) /
+          qpsettings.alpha_gpdal; // contains now: a = dx.dot(H.dot(dx)) + rho *
+      // norm(dx)**2 + (mu_eq_inv) * norm(Adx)**2 + nu*mu_eq_inv *
+      // norm(Adx-dy*mu_eq)**2 +
+      // norm(dw_act)**2 / (mu_in * (alpha_gpdal))
+        a += (1. - qpsettings.alpha_gpdal) *
+       (qpresults.info.mu_in_vec.cwiseProduct(qpwork.dw_aug.tail(n_constraints))).dot(qpwork.dw_aug.tail(n_constraints));
+      // add norm(z)**2 * mu_in * (1-alpha)
+
+      // derive vector [w-u]_+ + [w-l]--
+      qpwork.active_part_z =
+        (qpwork.primal_residual_in_scaled_up_plus_alphaCdx.array() > T(0.))
+          .select(qpwork.primal_residual_in_scaled_up,
+                  Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints)) +
+        (qpwork.primal_residual_in_scaled_low_plus_alphaCdx.array() < T(0.))
+          .select(qpresults.si,
+                  Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
+      b +=
+    (qpresults.info.mu_in_vec_inv.cwiseProduct(
+    qpwork.active_part_z)).dot(qpwork.err.tail(n_constraints)) /
+    qpsettings.alpha_gpdal; // contains now: b = dx.dot(H.dot(x) + rho*(x-xe) +
+    // g)  + mu_eq_inv * Adx.dot(res_eq) + nu*mu_eq_inv *
+    // (Adx-dy*mu_eq).dot(res_eq-y*mu_eq) + mu_in
+    // * dw_act.dot([w-u]_+ + [w-l]--) / alpha_gpdal
+
+    // contains now b =  dx.dot(H.dot(x) + rho*(x-xe) +  g)  + mu_eq_inv *
+    // Adx.dot(res_eq) + nu*mu_eq_inv * (Adx-dy*mu_eq).dot(res_eq-y*mu_eq) +
+    // mu_in_inv
+    // * Cdx_act.dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]--) + nu*mu_in_inv
+    // (Cdx_act-dz*mu_in).dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]-- - z*mu_in)
+    b +=  (1. - qpsettings.alpha_gpdal) *
+         (qpresults.info.mu_in_vec.cwiseProduct(qpwork.dw_aug.tail(n_constraints))).dot(qpresults.z);
+   return {
+    a,
+    b,
+    a * alpha + b,
+  };
+   } else {
+  #endif 
   T a(qpwork.dw_aug.head(qpmodel.dim).dot(qpwork.Hdx) +
       qpresults.info.mu_eq_inv * (qpwork.Adx).squaredNorm() +
       qpresults.info.rho *
         qpwork.dw_aug.head(qpmodel.dim)
           .squaredNorm()); // contains now: a = dx.dot(H.dot(dx)) + rho *
                            // norm(dx)**2 + (mu_eq_inv) * norm(Adx)**2
-
   qpwork.err.segment(qpmodel.dim, qpmodel.n_eq) =
     qpwork.Adx -
     qpwork.dw_aug.segment(qpmodel.dim, qpmodel.n_eq) * qpresults.info.mu_eq;
@@ -97,6 +176,7 @@ gpdal_derivative_results(const Model<T>& qpmodel,
     qpresults.info
       .mu_eq_inv; // contains now: a = dx.dot(H.dot(dx)) + rho * norm(dx)**2 +
   // (mu_eq_inv) * norm(Adx)**2 + mu_eq_inv * norm(Adx-dy*mu_eq)**2
+
   qpwork.err.head(qpmodel.dim) =
     qpresults.info.rho * (qpresults.x - qpwork.x_prev) + qpwork.g_scaled;
   T b(qpresults.x.dot(qpwork.Hdx) +
@@ -108,7 +188,6 @@ gpdal_derivative_results(const Model<T>& qpmodel,
                                                      // dx.dot(H.dot(x) +
                                                      // rho*(x-xe) +  g)  +
   // mu_eq_inv * Adx.dot(res_eq)
-
   qpwork.rhs.segment(qpmodel.dim, qpmodel.n_eq) = qpresults.se;
   b += qpresults.info.mu_eq_inv *
        qpwork.err.segment(qpmodel.dim, qpmodel.n_eq)
@@ -117,7 +196,6 @@ gpdal_derivative_results(const Model<T>& qpmodel,
            qpmodel.n_eq)); // contains now: b = dx.dot(H.dot(x) + rho*(x-xe)
   // +  g)  + mu_eq_inv * Adx.dot(res_eq) + nu*mu_eq_inv *
   // (Adx-dy*mu_eq).dot(res_eq-y*mu_eq)
-
   // derive Cdx_act
   qpwork.err.tail(n_constraints) =
     ((qpwork.primal_residual_in_scaled_up_plus_alphaCdx.array() > T(0.)) ||
@@ -142,7 +220,6 @@ gpdal_derivative_results(const Model<T>& qpmodel,
     (qpwork.primal_residual_in_scaled_low_plus_alphaCdx.array() < T(0.))
       .select(qpresults.si,
               Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
-
   b +=
     qpresults.info.mu_in_inv *
     qpwork.active_part_z.dot(qpwork.err.tail(n_constraints)) /
@@ -158,12 +235,15 @@ gpdal_derivative_results(const Model<T>& qpmodel,
   // (Cdx_act-dz*mu_in).dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]-- - z*mu_in)
   b += qpresults.info.mu_in * (1. - qpsettings.alpha_gpdal) *
        qpwork.dw_aug.tail(n_constraints).dot(qpresults.z);
-
   return {
     a,
     b,
     a * alpha + b,
   };
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  }
+  #endif 
+  
 }
 /*!
  * Stores first derivative and coefficient of the univariate second order
@@ -180,6 +260,9 @@ auto
 primal_dual_derivative_results(const Model<T>& qpmodel,
                                Results<T>& qpresults,
                                Workspace<T>& qpwork,
+                               #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                               const Settings<T>& qpsettings,
+                               #endif 
                                isize n_constraints,
                                T alpha) -> PrimalDualDerivativeResult<T>
 {
@@ -209,7 +292,90 @@ primal_dual_derivative_results(const Model<T>& qpmodel,
     qpwork.primal_residual_in_scaled_up + qpwork.Cdx * alpha;
   qpwork.primal_residual_in_scaled_low_plus_alphaCdx =
     qpresults.si + qpwork.Cdx * alpha;
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+    T a(qpwork.dw_aug.head(qpmodel.dim).dot(qpwork.Hdx) +
+      (qpresults.info.mu_eq_vec_inv.cwiseProduct(qpwork.Adx)).dot(qpwork.Adx) +
+      qpresults.info.rho *
+        qpwork.dw_aug.head(qpmodel.dim)
+          .squaredNorm()); // contains now: a = dx.dot(H.dot(dx)) + rho *
+                           // norm(dx)**2 + (mu_eq_inv) * norm(Adx)**2
+    qpwork.err.segment(qpmodel.dim, qpmodel.n_eq) =
+    qpwork.Adx -
+    (qpwork.dw_aug.segment(qpmodel.dim, qpmodel.n_eq)).cwiseProduct(qpresults.info.mu_eq_vec);
+    a += (qpwork.err.segment(qpmodel.dim, qpmodel.n_eq).cwiseProduct(qpresults.info.mu_eq_vec_inv)).dot(qpwork.err.segment(qpmodel.dim, qpmodel.n_eq)) 
+       *qpresults.info
+         .nu; // contains now: a = dx.dot(H.dot(dx)) + rho * norm(dx)**2 +
+  // (mu_eq_inv) * norm(Adx)**2 + nu*mu_eq_inv * norm(Adx-dy*mu_eq)**2
+  qpwork.err.head(qpmodel.dim) =
+    qpresults.info.rho * (qpresults.x - qpwork.x_prev) + qpwork.g_scaled;
 
+  T b(qpresults.x.dot(qpwork.Hdx) +
+      (qpwork.err.head(qpmodel.dim)).dot(qpwork.dw_aug.head(qpmodel.dim)) +
+      (qpresults.info.mu_eq_vec_inv.cwiseProduct(qpwork.Adx))
+          .dot(qpresults.se +
+               (qpresults.y).cwiseProduct(qpresults.info.mu_eq_vec))); // contains now: b =
+                                                     // dx.dot(H.dot(x) +
+                                                     // rho*(x-xe) +  g)  +
+  // mu_eq_inv * Adx.dot(res_eq)
+  qpwork.rhs.segment(qpmodel.dim, qpmodel.n_eq) = qpresults.se;
+  b += qpresults.info.nu * (qpresults.info.mu_eq_vec_inv.cwiseProduct(
+       qpwork.err.segment(qpmodel.dim, qpmodel.n_eq)))
+         .dot(qpwork.rhs.segment(
+           qpmodel.dim,
+           qpmodel.n_eq)); // contains now: b = dx.dot(H.dot(x) + rho*(x-xe)
+  
+  // derive Cdx_act
+  qpwork.err.tail(n_constraints) =
+    ((qpwork.primal_residual_in_scaled_up_plus_alphaCdx.array() > T(0.)) ||
+     (qpwork.primal_residual_in_scaled_low_plus_alphaCdx.array() < T(0.)))
+      .select(qpwork.Cdx,
+              Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
+
+  a += (qpresults.info.mu_in_vec_inv.cwiseProduct(
+       qpwork.err.tail(n_constraints))).dot(qpwork.err.tail(n_constraints)); // contains now: a = dx.dot(H.dot(dx)) + rho *
+  // norm(dx)**2 + (mu_eq_inv) * norm(Adx)**2 + nu*mu_eq_inv *
+  // norm(Adx-dy*mu_eq)**2 + mu_in *
+  // norm(Cdx_act)**2
+
+  // derive vector [Cx-u+ze/mu]_+ + [Cx-l+ze/mu]--
+  qpwork.active_part_z =
+    (qpwork.primal_residual_in_scaled_up_plus_alphaCdx.array() > T(0.))
+      .select(qpwork.primal_residual_in_scaled_up,
+              Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints)) +
+    (qpwork.primal_residual_in_scaled_low_plus_alphaCdx.array() < T(0.))
+      .select(qpresults.si,
+              Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
+
+  b += (qpresults.info.mu_in_vec_inv.cwiseProduct(
+       qpwork.active_part_z)).dot(qpwork.err.tail(
+         n_constraints)); // contains now: b = dx.dot(H.dot(x) + rho*(x-xe) +
+  // derive Cdx_act - dz*mu_in
+  qpwork.err.tail(n_constraints) -=
+    (qpwork.dw_aug.tail(n_constraints)).cwiseProduct(qpresults.info.mu_in_vec);
+  // derive [Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]-- -z*mu_in
+  qpwork.active_part_z -= (qpresults.z).cwiseProduct(qpresults.info.mu_in_vec);
+
+  // contains now a = dx.dot(H.dot(dx)) + rho * norm(dx)**2 + (mu_eq_inv) *
+  // norm(Adx)**2 + nu*mu_eq_inv * norm(Adx-dy*mu_eq)**2 + mu_in_inv *
+  // norm(Cdx_act)**2 + nu*mu_in_inv * norm(Cdx_act-dz*mu_in)**2
+  a += qpresults.info.nu * (qpresults.info.mu_in_vec_inv).cwiseProduct(
+       qpwork.err.tail(n_constraints)).dot(qpwork.err.tail(n_constraints));
+  // contains now b =  dx.dot(H.dot(x) + rho*(x-xe) +  g)  + mu_eq_inv *
+  // Adx.dot(res_eq) + nu*mu_eq_inv * (Adx-dy*mu_eq).dot(res_eq-y*mu_eq) +
+  // mu_in_inv
+  // * Cdx_act.dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]--) + nu*mu_in_inv
+  // (Cdx_act-dz*mu_in).dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]-- - z*mu_in)
+  b += qpresults.info.nu * (qpresults.info.mu_in_vec_inv.cwiseProduct(
+       qpwork.err.tail(n_constraints))).dot(qpwork.active_part_z);
+
+  return {
+      a,
+      b,
+      a * alpha + b,
+    };
+  }else { 
+  #endif 
   T a(qpwork.dw_aug.head(qpmodel.dim).dot(qpwork.Hdx) +
       qpresults.info.mu_eq_inv * (qpwork.Adx).squaredNorm() +
       qpresults.info.rho *
@@ -220,6 +386,7 @@ primal_dual_derivative_results(const Model<T>& qpmodel,
   qpwork.err.segment(qpmodel.dim, qpmodel.n_eq) =
     qpwork.Adx -
     qpwork.dw_aug.segment(qpmodel.dim, qpmodel.n_eq) * qpresults.info.mu_eq;
+  
   a += qpwork.err.segment(qpmodel.dim, qpmodel.n_eq).squaredNorm() *
        qpresults.info.mu_eq_inv *
        qpresults.info
@@ -227,14 +394,6 @@ primal_dual_derivative_results(const Model<T>& qpmodel,
   // (mu_eq_inv) * norm(Adx)**2 + nu*mu_eq_inv * norm(Adx-dy*mu_eq)**2
   qpwork.err.head(qpmodel.dim) =
     qpresults.info.rho * (qpresults.x - qpwork.x_prev) + qpwork.g_scaled;
-  // T b(qpresults.x.dot(qpwork.Hdx) +
-  //     (qpwork.err.head(qpmodel.dim)).dot(qpwork.dw_aug.head(qpmodel.dim)) +
-  //     qpresults.info.mu_eq_inv *
-  //       (qpwork.Adx)
-  //         .dot(qpwork.primal_residual_eq_scaled +
-  //              qpresults.y * qpresults.info.mu_eq)); // contains now: b =
-  //                                                    // dx.dot(H.dot(x) +
-  //                                                    // rho*(x-xe) +  g)  +
 
   T b(qpresults.x.dot(qpwork.Hdx) +
       (qpwork.err.head(qpmodel.dim)).dot(qpwork.dw_aug.head(qpmodel.dim)) +
@@ -302,12 +461,16 @@ primal_dual_derivative_results(const Model<T>& qpmodel,
   // (Cdx_act-dz*mu_in).dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]-- - z*mu_in)
   b += qpresults.info.nu * qpresults.info.mu_in_inv *
        qpwork.err.tail(n_constraints).dot(qpwork.active_part_z);
-
+  
   return {
     a,
     b,
     a * alpha + b,
   };
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  }
+  #endif 
+  
 }
 /*!
  * Performs the exact primaldual linesearch algorithm.
@@ -411,7 +574,11 @@ primal_dual_ls(const Model<T>& qpmodel,
       } break;
       case MeritFunctionType::PDAL: {
         auto res = primal_dual_derivative_results(
-          qpmodel, qpresults, qpwork, n_constraints, T(0));
+          qpmodel, qpresults, qpwork, 
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          qpsettings,
+          #endif 
+          n_constraints, T(0));
         qpwork.alpha = -res.b / res.a;
       } break;
     }
@@ -452,7 +619,11 @@ primal_dual_ls(const Model<T>& qpmodel,
         break;
       case MeritFunctionType::PDAL:
         gr = primal_dual_derivative_results(
-               qpmodel, qpresults, qpwork, n_constraints, alpha_)
+               qpmodel, qpresults, qpwork,
+               #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                qpsettings,
+                #endif 
+                n_constraints, alpha_)
                .grad;
         break;
     }
@@ -488,7 +659,11 @@ primal_dual_ls(const Model<T>& qpmodel,
       case MeritFunctionType::PDAL:
         last_neg_grad =
           primal_dual_derivative_results(
-            qpmodel, qpresults, qpwork, n_constraints, alpha_last_neg)
+            qpmodel, qpresults, qpwork, 
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            qpsettings,
+            #endif 
+            n_constraints, alpha_last_neg)
             .grad;
         break;
     }
@@ -516,7 +691,11 @@ primal_dual_ls(const Model<T>& qpmodel,
       } break;
       case MeritFunctionType::PDAL: {
         PrimalDualDerivativeResult<T> res = primal_dual_derivative_results(
-          qpmodel, qpresults, qpwork, n_constraints, 2 * alpha_last_neg + 1);
+          qpmodel, qpresults, qpwork, 
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          qpsettings,
+          #endif 
+          n_constraints, 2 * alpha_last_neg + 1);
         auto& a = res.a;
         auto& b = res.b;
         // grad = a * alpha + b
@@ -552,7 +731,11 @@ active_set_change(const Model<T>& qpmodel,
                   Results<T>& qpresults,
                   const DenseBackend& dense_backend,
                   const isize n_constraints,
-                  Workspace<T>& qpwork)
+                  Workspace<T>& qpwork
+                  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                  ,const Settings<T>& qpsettings
+                  #endif 
+                  )
 {
 
   /*
@@ -667,9 +850,19 @@ active_set_change(const Model<T>& qpmodel,
             // box constraint
             col.setZero();
             col[index - qpmodel.n_in] = qpwork.i_scaled[index - qpmodel.n_in];
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+              qpwork.dw_aug[index- qpmodel.n_in] = -qpresults.info.mu_in_vec_inv[index-qpmodel.n_in];
+            }
+            #endif 
           } else {
             // generic ineq constraints
             col = qpwork.C_scaled.row(index);
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+              qpwork.dw_aug[index] = -qpresults.info.mu_in_vec_inv[index];
+            }
+            #endif 
           }
         }
         qpwork.ldl.rank_r_update(
@@ -731,6 +924,11 @@ active_set_change(const Model<T>& qpmodel,
             }
             col.tail(n_eq + n_c_f).setZero();
             col[n + n_eq + n_c + k] = mu_in_neg;
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+              col[n + n_eq + n_c + k] = -qpresults.info.mu_in_vec[index];
+            }
+            #endif 
           }
           qpwork.ldl.insert_block_at(n + n_eq + n_c, new_cols, stack);
         } break;
@@ -762,9 +960,19 @@ active_set_change(const Model<T>& qpmodel,
               // box constraint
               col.setZero();
               col[index - qpmodel.n_in] = qpwork.i_scaled[index - qpmodel.n_in];
+              #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+              if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+                qpwork.dw_aug[index- qpmodel.n_in] = -qpresults.info.mu_in_vec_inv[index-qpmodel.n_in];
+              }
+              #endif 
             } else {
               // generic ineq constraints
               col.head(qpmodel.dim) = qpwork.C_scaled.row(index);
+              #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+              if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+                qpwork.dw_aug[index] = -qpresults.info.mu_in_vec_inv[index];
+              }
+              #endif 
             }
           }
           qpwork.ldl.rank_r_update(

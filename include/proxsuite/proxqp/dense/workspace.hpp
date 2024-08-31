@@ -74,8 +74,6 @@ struct Workspace
   Vec<T> rhs;
   Vec<T> err;
 
-  //// Relative residuals constants
-
   T dual_feasibility_rhs_2;
   T correction_guess_rhs_g;
   T correction_guess_rhs_b;
@@ -146,9 +144,15 @@ struct Workspace
               // optimize here
               proxsuite::linalg::dense::Ldlt<T>::factorize_req(dim + n_eq +
                                                                n_in + dim) |
-
-              (proxsuite::linalg::dense::temp_vec_req(
-                 proxsuite::linalg::veg::Tag<T>{}, n_eq + n_in + dim) &
+              (
+                #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                proxsuite::linalg::dense::temp_vec_req(
+                 proxsuite::linalg::veg::Tag<T>{}, 3*(n_eq + n_in + dim)) 
+                #else 
+                proxsuite::linalg::dense::temp_vec_req(
+                 proxsuite::linalg::veg::Tag<T>{}, n_eq + n_in + dim) 
+                #endif 
+                 &
                proxsuite::linalg::veg::dynstack::StackReq{
                  isize{ sizeof(isize) } * (n_eq + n_in + dim),
                  alignof(isize) } &
@@ -175,8 +179,16 @@ struct Workspace
 
               proxsuite::linalg::dense::Ldlt<T>::factorize_req(dim) |
               // check simplification possible
-              (proxsuite::linalg::dense::temp_vec_req(
-                 proxsuite::linalg::veg::Tag<T>{}, n_eq + n_in + dim) &
+              (
+                #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                proxsuite::linalg::dense::temp_vec_req(
+                 proxsuite::linalg::veg::Tag<T>{}, 3*(n_eq + n_in+ dim)) 
+                #else
+                proxsuite::linalg::dense::temp_vec_req(
+                 proxsuite::linalg::veg::Tag<T>{}, n_eq + n_in + dim)
+                #endif 
+                 
+                 &
                proxsuite::linalg::veg::dynstack::StackReq{
                  isize{ sizeof(isize) } * (n_eq + n_in + dim),
                  alignof(isize) } &

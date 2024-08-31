@@ -102,6 +102,10 @@ option(BUILD_BINDINGS_WITH_AVX512_SUPPORT
 option(TEST_JULIA_INTERFACE "Run the julia examples as unittest" OFF)
 option(BUILD_WITH_OPENMP_SUPPORT "Build the library with the OpenMP support"
        OFF)
+option(BUILD_WITH_EXTENDED_QPDO_PREALLOCATION "Build the library with additional preallocation when using QPDO penalization update rule (OFF by default)" ON)
+if(BUILD_WITH_EXTENDED_QPDO_PREALLOCATION)
+    add_definitions(-DBUILD_WITH_EXTENDED_QPDO_PREALLOCATION)
+endif()
 cmake_dependent_option(
   LINK_PYTHON_INTERFACE_TO_OPENMP "Link OpenMP to the Python interface" ON
   BUILD_WITH_OPENMP_SUPPORT OFF)

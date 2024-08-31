@@ -32,6 +32,12 @@ struct Info
   T mu_eq_inv;
   T mu_in;
   T mu_in_inv;
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  sparse::Vec<T> mu_eq_vec;
+  sparse::Vec<T> mu_in_vec;
+  sparse::Vec<T> mu_eq_vec_inv;
+  sparse::Vec<T> mu_in_vec_inv; 
+  #endif 
   T rho;
   T nu;
 
@@ -98,10 +104,22 @@ struct Results
     , se(n_eq)
     , si(n_in)
   {
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      info.mu_eq_vec.resize(n_eq);
+      info.mu_eq_vec_inv.resize(n_eq);
+    #endif 
     if (box_constraints) {
       z.resize(dim + n_in);
       si.resize(dim + n_in);
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      info.mu_in_vec.resize(dim+n_in);
+      info.mu_in_vec_inv.resize(dim+n_in);
+      #endif 
     } else {
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      info.mu_in_vec.resize(n_in);
+      info.mu_in_vec_inv.resize(n_in);
+      #endif 
       z.resize(n_in);
       si.resize(n_in);
     }
@@ -125,6 +143,12 @@ struct Results
     info.mu_eq = 1e-3;
     info.mu_in_inv = 1e1;
     info.mu_in = 1e-1;
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    info.mu_eq_vec.setOnes();
+    info.mu_in_vec.setOnes();
+    info.mu_eq_vec_inv.setOnes();
+    info.mu_eq_vec_inv.setOnes();
+    #endif 
     info.nu = 1.;
     info.iter = 0;
     info.iter_ext = 0;
@@ -180,6 +204,12 @@ struct Results
     info.mu_in_inv = 1e1;
     info.mu_in = 1e-1;
     info.nu = 1.;
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    info.mu_eq_vec.setOnes(); 
+    info.mu_in_vec.setOnes();
+    info.mu_eq_vec_inv.setOnes();
+    info.mu_in_vec_inv.setOnes();
+    #endif 
     info.minimal_H_eigenvalue_estimate = 0.;
     if (settings != nullopt) {
       info.rho = settings.value().default_rho;
@@ -219,7 +249,15 @@ operator==(const Info<T>& info1, const Info<T>& info2)
     info1.objValue == info2.objValue && info1.pri_res == info2.pri_res &&
     info1.dua_res == info2.dua_res && info1.duality_gap == info2.duality_gap &&
     info1.duality_gap == info2.duality_gap &&
-    info1.minimal_H_eigenvalue_estimate == info2.minimal_H_eigenvalue_estimate;
+    info1.minimal_H_eigenvalue_estimate == info2.minimal_H_eigenvalue_estimate
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    &&
+    info1.mu_eq_vec == info2.mu_eq_vec &&
+    info1.mu_in_vec == info2.mu_in_vec && 
+    info1.mu_eq_vec_inv == info2.mu_eq_vec_inv &&
+    info1.mu_in_vec_inv == info2.mu_in_vec_inv 
+    #endif 
+    ;
   return value;
 }
 

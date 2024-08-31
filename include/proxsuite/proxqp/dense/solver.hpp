@@ -40,6 +40,9 @@ void
 refactorize(const Model<T>& qpmodel,
             Results<T>& qpresults,
             Workspace<T>& qpwork,
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            const Settings<T>& qpsettings,
+            #endif 
             const isize n_constraints,
             const DenseBackend& dense_backend,
             T rho_new)
@@ -56,8 +59,18 @@ refactorize(const Model<T>& qpmodel,
     case DenseBackend::PrimalDualLDLT: {
       qpwork.kkt.diagonal().head(qpmodel.dim).array() +=
         rho_new - qpresults.info.rho;
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+          qpwork.kkt.diagonal().segment(qpmodel.dim, qpmodel.n_eq) =
+          -qpresults.info.mu_eq_vec;
+        }else{
+          qpwork.kkt.diagonal().segment(qpmodel.dim, qpmodel.n_eq).array() =
+          -qpresults.info.mu_eq;
+        }
+      #else
       qpwork.kkt.diagonal().segment(qpmodel.dim, qpmodel.n_eq).array() =
         -qpresults.info.mu_eq;
+      #endif 
       qpwork.ldl.factorize(qpwork.kkt.transpose(), stack);
 
       isize n = qpmodel.dim;
@@ -80,28 +93,76 @@ refactorize(const Model<T>& qpmodel,
             col.head(n) = qpwork.C_scaled.row(i);
           }
           col.segment(n, n_eq + n_c).setZero();
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+            col(n + n_eq + j) = -qpresults.info.mu_in_vec[i];
+          }else{
+            col(n + n_eq + j) = mu_in_neg;
+          }
+          #else
           col(n + n_eq + j) = mu_in_neg;
+          #endif
         }
       }
       qpwork.ldl.insert_block_at(n + n_eq, new_cols, stack);
     } break;
     case DenseBackend::PrimalLDLT: {
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+        qpwork.kkt.noalias() =
+        qpwork.H_scaled + (qpwork.A_scaled.transpose() *
+                            qpresults.info.mu_eq_vec_inv.asDiagonal()
+                            * qpwork.A_scaled);
+      }else{
+        qpwork.kkt.noalias() =
+        qpwork.H_scaled + (qpwork.A_scaled.transpose() * qpwork.A_scaled) *
+                            qpresults.info.mu_eq_inv;
+      }
+      #else
       qpwork.kkt.noalias() =
         qpwork.H_scaled + (qpwork.A_scaled.transpose() * qpwork.A_scaled) *
                             qpresults.info.mu_eq_inv;
+      #endif
       qpwork.kkt.diagonal().array() += qpresults.info.rho;
       for (isize i = 0; i < n_constraints; i++) {
         if (qpwork.active_inequalities(i)) {
           if (i >= qpmodel.n_in) {
             // box constraints
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+              qpwork.kkt(i - qpmodel.n_in, i - qpmodel.n_in) +=
+              std::pow(qpwork.i_scaled(i - qpmodel.n_in), 2) *
+              qpresults.info.mu_in_vec_inv[i-qpmodel.n_in];
+            }else{
+              qpwork.kkt(i - qpmodel.n_in, i - qpmodel.n_in) +=
+              std::pow(qpwork.i_scaled(i - qpmodel.n_in), 2) *
+              qpresults.info.mu_in_inv;
+            }
+            #else
             qpwork.kkt(i - qpmodel.n_in, i - qpmodel.n_in) +=
               std::pow(qpwork.i_scaled(i - qpmodel.n_in), 2) *
               qpresults.info.mu_in_inv;
+            #endif 
           } else {
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+              // generic ineq constraint
+              qpwork.kkt.noalias() += qpwork.C_scaled.row(i).transpose() *
+                                    qpwork.C_scaled.row(i) * qpresults.info.mu_in_vec_inv[i]
+                                    ;
+            }else{
+              // generic ineq constraint
+              qpwork.kkt.noalias() += qpwork.C_scaled.row(i).transpose() *
+                                    qpwork.C_scaled.row(i) *
+                                    qpresults.info.mu_in_inv;
+            }
+            #else 
             // generic ineq constraint
             qpwork.kkt.noalias() += qpwork.C_scaled.row(i).transpose() *
                                     qpwork.C_scaled.row(i) *
                                     qpresults.info.mu_in_inv;
+            #endif 
+            
           }
         }
       }
@@ -133,7 +194,13 @@ mu_update(const Model<T>& qpmodel,
           isize n_constraints,
           const DenseBackend& dense_backend,
           T mu_eq_new,
-          T mu_in_new)
+          T mu_in_new
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          ,const Settings<T>& qpsettings,
+          VectorViewMut<T> old_mu_eq,
+          VectorViewMut<T> old_mu_in
+          #endif
+          )
 {
   proxsuite::linalg::veg::dynstack::DynStackMut stack{
     proxsuite::linalg::veg::from_slice_mut, qpwork.ldl_stack.as_mut()
@@ -150,10 +217,20 @@ mu_update(const Model<T>& qpmodel,
     case DenseBackend::PrimalDualLDLT: {
       LDLT_TEMP_VEC_UNINIT(T, rank_update_alpha, n_eq + n_c, stack);
 
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+        rank_update_alpha.head(n_eq)=qpresults.info.mu_eq_vec-old_mu_eq.to_eigen();
+        rank_update_alpha.tail(n_c)=qpresults.info.mu_in_vec.tail(n_c)-old_mu_in.to_eigen().tail(n_c);
+      }else{
+        rank_update_alpha.head(n_eq).setConstant(qpresults.info.mu_eq -
+                                               mu_eq_new);
+        rank_update_alpha.tail(n_c).setConstant(qpresults.info.mu_in - mu_in_new);
+      }
+      #else
       rank_update_alpha.head(n_eq).setConstant(qpresults.info.mu_eq -
                                                mu_eq_new);
       rank_update_alpha.tail(n_c).setConstant(qpresults.info.mu_in - mu_in_new);
-
+      #endif 
       {
         auto _indices = stack.make_new_for_overwrite(
           proxsuite::linalg::veg::Tag<isize>{}, n_eq + n_c);
@@ -195,8 +272,16 @@ mu_update(const Model<T>& qpmodel,
       {
         LDLT_TEMP_MAT_UNINIT(T, new_cols, qpmodel.dim, qpwork.n_c, stack);
         qpwork.dw_aug.head(qpmodel.dim).setOnes();
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        if(qpsettings.mu_update_rule!=PenalizationUpdateRule::QPDO){
+          T delta_mu(T(1) / mu_in_new - qpresults.info.mu_in_inv);
+          qpwork.dw_aug.head(qpwork.n_c).array() *= delta_mu;
+        }
+        #else 
         T delta_mu(T(1) / mu_in_new - qpresults.info.mu_in_inv);
-        qpwork.dw_aug.head(qpmodel.dim).array() *= delta_mu;
+        qpwork.dw_aug.head(qpwork.n_c).array() *= delta_mu;
+        #endif
+        
         for (isize i = 0; i < n_constraints; ++i) {
           isize j = qpwork.current_bijection_map[i];
           if (j < n_c) {
@@ -205,9 +290,25 @@ mu_update(const Model<T>& qpmodel,
               // box constraint
               col.setZero();
               col[i - qpmodel.n_in] = qpwork.i_scaled[i - qpmodel.n_in];
+              #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+              if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+                // here it is the opposite bc we QPDO_update we update first mu and then
+                // call mu_update to perform the rank updates
+                T delta_mu(qpresults.info.mu_in_inv-T(1) / old_mu_in.to_eigen()(i-qpmodel.n_in));
+                qpwork.dw_aug[i- qpmodel.n_in]=delta_mu ;
+              }
+              #endif 
             } else {
               // generic ineq constraints
               col = qpwork.C_scaled.row(i);
+              #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+              if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+                // here it is the opposite bc we QPDO_update we update first mu and then
+                // call mu_update to perform the rank updates
+                T delta_mu(qpresults.info.mu_in_vec_inv[i] -T(1) / old_mu_in.to_eigen()(i-qpmodel.n_in));
+                qpwork.dw_aug[i]=delta_mu ;
+              }
+              #endif 
             }
           }
         }
@@ -219,7 +320,20 @@ mu_update(const Model<T>& qpmodel,
         LDLT_TEMP_MAT_UNINIT(T, new_cols, qpmodel.dim, qpmodel.n_eq, stack);
         qpwork.dw_aug.head(qpmodel.n_eq).setOnes();
         T delta_mu(1 / mu_eq_new - qpresults.info.mu_eq_inv);
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+              if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+                // here it is the opposite bc we QPDO_update we update first mu and then
+                // call mu_update to perform the rank updates
+                for (isize i=0;i<qpmodel.n_eq;i++){
+                  T delta_mu(qpresults.info.mu_eq_vec_inv[i]-T(1) / old_mu_eq.to_eigen()(i));
+                  qpwork.dw_aug[i]=delta_mu ;
+                }
+              }else{
+                qpwork.dw_aug.head(qpmodel.n_eq).array() *= delta_mu;
+              }
+        #else
         qpwork.dw_aug.head(qpmodel.n_eq).array() *= delta_mu;
+        #endif
         new_cols = qpwork.A_scaled.transpose();
         qpwork.ldl.rank_r_update(
           new_cols, qpwork.dw_aug.head(qpmodel.n_eq), stack);
@@ -476,6 +590,9 @@ iterative_solve_with_permut_fact( //
     refactorize(qpmodel,
                 qpresults,
                 qpwork,
+                #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                qpsettings,
+                #endif 
                 n_constraints,
                 dense_backend,
                 qpresults.info.rho);
@@ -675,6 +792,179 @@ Martinez_update(const Settings<T>& qpsettings,
                qpsettings.mu_max_eq_inv);
   }
 }
+#ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+/*!
+ * QPDO update rule for updating penalization parameters and accuracy variables (added for benchmarking purposes).
+ *
+ * @param qpmodel solver model.
+ * @param qpwork solver workspace.
+ * @param qpsettings solver settings.
+ * @param qpresults solver results.
+ * @param primal_feasibility_lhs_new primal infeasibility.
+ * @param bcl_eta_ext BCL variable measuring whether the precisely infeasibility
+ * is too large or not.
+ * @param bcl_eta_in BCL variable setting the accuracy required for solving an
+ * associated subproblem.
+ * @param bcl_eta_ext_init initial BCL bcl_eta_ext variable value.
+ * @param eps_in_min minimal possible value for bcl_eta_in.
+ * @param old_se vector with old values of Ax-b
+ * parameter.
+ * @param old_si vector with old values of inequality residual
+ * @param old_mu_eq vector with previous values of penalization parameter wrt equality constraints
+ * parameter (inverse form).
+ * @param old_mu_in vector with previous values of penalization parameter wrt inequality constraints
+ */
+template<typename T>
+void
+QPDO_update_rule(
+                const Model<T>& qpmodel,
+                const Settings<T>& qpsettings,
+                Results<T>& qpresults,
+                Workspace<T>& qpwork,
+                const isize n_constraints,
+                const DenseBackend& dense_backend,
+                const preconditioner::RuizEquilibration<T>& ruiz,
+                const bool box_constraints,
+                T& primal_feasibility_lhs_new,
+                VectorViewMut<T> old_se,
+                VectorViewMut<T> old_si,
+                VectorViewMut<T> old_mu_eq,
+                VectorViewMut<T> old_mu_in,
+                T& bcl_eta_in,
+                T eps_in_min
+)
+{ 
+  if (qpresults.info.iter_ext==1){
+    // this corresponds to the initialization
+    // this is done before the first factorization, 
+    // there there has not been a priori call to the computation of primal residuals
+    // residual computations
+    qpresults.se.noalias() = qpwork.A_scaled * qpresults.x;
+    qpwork.primal_residual_in_scaled_up.head(qpmodel.n_in).noalias() =
+      qpwork.C_scaled * qpresults.x;
+    if (box_constraints) {
+      qpwork.primal_residual_in_scaled_up.tail(qpmodel.dim) = qpresults.x;
+      // qpwork.primal_residual_in_scaled_up.tail(qpmodel.dim).array() *=
+      // qpwork.i_scaled.array();
+      ruiz.unscale_primal_in_place(VectorViewMut<T>{
+        from_eigen, qpwork.primal_residual_in_scaled_up.tail(qpmodel.dim) });
+      // ruiz.unscale_box_primal_residual_in_place_in(VectorViewMut<T>{from_eigen,
+      // qpwork.primal_residual_in_scaled_up.tail(qpmodel.dim)});
+    }
+    // ruiz.unscale_primal_residual_in_place_eq(
+    //   VectorViewMut<T>{ from_eigen, qpwork.primal_residual_eq_scaled });
+    // primal_feasibility_eq_rhs_0 = infty_norm(qpwork.primal_residual_eq_scaled);
+    ruiz.unscale_primal_residual_in_place_eq(
+      VectorViewMut<T>{ from_eigen, qpresults.se });
+    ruiz.unscale_primal_residual_in_place_in(VectorViewMut<T>{
+      from_eigen, qpwork.primal_residual_in_scaled_up.head(qpmodel.n_in) });
+    qpresults.si.head(qpmodel.n_in) =
+      helpers::positive_part(
+        qpwork.primal_residual_in_scaled_up.head(qpmodel.n_in) - qpmodel.u) +
+      helpers::negative_part(
+        qpwork.primal_residual_in_scaled_up.head(qpmodel.n_in) - qpmodel.l);
+    if (box_constraints) {
+      qpresults.si.tail(qpmodel.dim) =
+        helpers::positive_part(
+          qpwork.primal_residual_in_scaled_up.tail(qpmodel.dim) - qpmodel.u_box) +
+        helpers::negative_part(
+          qpwork.primal_residual_in_scaled_up.tail(qpmodel.dim) - qpmodel.l_box);
+      qpwork.active_part_z.tail(qpmodel.dim) =
+        qpresults.x - qpresults.si.tail(qpmodel.dim);
+    }
+    qpresults.se -= qpmodel.b;
+    // compute the objective
+    qpresults.info.objValue = 0;
+    for (Eigen::Index j = 0; j < qpmodel.dim; ++j) {
+      qpresults.info.objValue +=
+        0.5 * (qpresults.x(j) * qpresults.x(j)) * qpmodel.H(j, j);
+      qpresults.info.objValue +=
+        qpresults.x(j) * T(qpmodel.H.col(j)
+                              .tail(qpmodel.dim - j - 1)
+                              .dot(qpresults.x.tail(qpmodel.dim - j - 1)));
+    }
+    qpresults.info.objValue += (qpmodel.g).dot(qpresults.x);
+    // compute factor coefficient for penalization parameter update
+    T factor = T(0.1) / std::max(T(1),qpresults.info.objValue);
+    // now update the penalization parameter component by component
+    for (isize i=0;i<qpmodel.n_eq;i++){
+      qpresults.info.mu_eq_vec[i]=std::max(T(1),T(std::pow(qpresults.se[i],2)))*factor;
+      qpresults.info.mu_eq_vec[i]=std::max(std::min(T(1.E-3),qpresults.info.mu_eq_vec[i]),T(1.E3));
+      old_mu_eq.to_eigen()[i] = qpresults.info.mu_eq_vec[i];
+      qpresults.info.mu_eq_vec_inv[i]=T(1)/qpresults.info.mu_eq_vec[i];
+    }
+    for (isize i=0;i<qpmodel.n_in;i++){
+      qpresults.info.mu_in_vec[i]=std::max(T(1),T(std::pow(qpresults.si[i],2)))*factor;
+      qpresults.info.mu_in_vec[i]=std::max(std::min(T(1.E-3),qpresults.info.mu_in_vec[i]),T(1.E3));
+      old_mu_in.to_eigen()[i] = qpresults.info.mu_in_vec[i];
+      qpresults.info.mu_in_vec_inv[i]=T(1)/qpresults.info.mu_in_vec[i];
+    }
+  }else{
+    bool rank_update(false);
+    bcl_eta_in = std::max(bcl_eta_in * 0.1, eps_in_min);
+    // first unscale se and si for checking the condition 
+    ruiz.unscale_primal_residual_in_place_eq(
+    VectorViewMut<T>{ from_eigen, qpresults.se });// in primal residual computation it is scaled at the end
+    // the update is performed component by component 
+    for (isize i=0;i<qpmodel.n_eq;i++){
+        T abs_se = std::abs(qpresults.se[i]) ;
+        if (abs_se > std::max(std::abs(old_se.to_eigen()[i]*0.25),qpsettings.eps_abs) ){
+          T factor = 1.E-2 * qpresults.info.mu_eq_vec[i] * primal_feasibility_lhs_new / abs_se;
+          T new_mu = std::max(std::min(factor,1.E-9),qpresults.info.mu_eq_vec[i]);
+          if (new_mu!= qpresults.info.mu_eq_vec[i]) rank_update=true;
+          qpresults.info.mu_eq_vec[i] = new_mu;
+          qpresults.info.mu_eq_vec_inv[i] = T(1)/qpresults.info.mu_eq_vec[i];
+        }
+    }
+    for (isize i=0;i<qpmodel.n_in;i++){
+        T abs_si = std::abs(qpresults.si[i]) ;
+        if (abs_si > std::max(std::abs(old_si.to_eigen()[i]*0.25),qpsettings.eps_abs) ){
+          T factor = 1.E-2 * qpresults.info.mu_in_vec[i] * primal_feasibility_lhs_new / abs_si;
+          T new_mu = std::max(std::min(factor,1.E-9),qpresults.info.mu_in_vec[i]);
+          if (new_mu!= qpresults.info.mu_in_vec[i]) rank_update=true;
+          qpresults.info.mu_in_vec[i] = new_mu;
+          qpresults.info.mu_in_vec_inv[i] = T(1)/qpresults.info.mu_in_vec[i];
+        }
+    }
+    // update rho parameter (aka, proximal step size wrt primal variable)
+    T rho_new = std::max(T(1.E-7),T(0.1*qpresults.info.rho));
+    if (rho_new!=qpresults.info.rho) {
+      qpresults.info.rho_updates++;
+      // perform full refactorization
+      refactorize(
+        qpmodel,
+        qpresults,
+        qpwork,
+        qpsettings,
+        n_constraints,
+        dense_backend,
+        rho_new
+      );
+      qpresults.info.rho=rho_new;
+      qpresults.info.mu_updates++;
+    }else {
+      // rank updates performed here only for mu part
+      if (rank_update){
+        T new_bcl_mu_eq(0), new_bcl_mu_in(0);//not used
+        mu_update(qpmodel,
+                qpresults,
+                qpwork,
+                n_constraints,
+                dense_backend,
+                new_bcl_mu_eq,
+                new_bcl_mu_in,
+                qpsettings,
+                old_mu_eq,
+                old_mu_in
+                );
+      }
+    }
+    // update old values
+    old_mu_eq.to_eigen()=qpresults.info.mu_eq_vec;
+    old_mu_in.to_eigen()=qpresults.info.mu_in_vec;
+  }
+}
+#endif
 /*!
  * Derives the stopping criterion value used by the Newton semismooth algorithm
  * to minimize the primal-dual augmented Lagrangian function.
@@ -782,7 +1072,11 @@ primal_dual_semi_smooth_newton_step(const Settings<T>& qpsettings,
   qpwork.rhs.setZero();
   qpwork.dw_aug.setZero();
   linesearch::active_set_change(
-    qpmodel, qpresults, dense_backend, n_constraints, qpwork);
+    qpmodel, qpresults, dense_backend, n_constraints, qpwork
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    ,qpsettings
+    #endif 
+    );
 
   qpwork.rhs.head(qpmodel.dim) = -qpwork.dual_residual_scaled;
 
@@ -802,13 +1096,55 @@ primal_dual_semi_smooth_newton_step(const Settings<T>& qpsettings,
         isize j = qpwork.current_bijection_map(i);
         if (j < qpwork.n_c) {
           if (qpwork.active_set_up(i)) {
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            switch (qpsettings.mu_update_rule){
+              case PenalizationUpdateRule::QPDO:
+                qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpwork.primal_residual_in_scaled_up(i) +
+              qpresults.z(i) * qpresults.info.mu_in_vec(i) * qpsettings.alpha_gpdal;
+                break;
+              case PenalizationUpdateRule::BCL:
+                qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpwork.primal_residual_in_scaled_up(i) +
+              qpresults.z(i) * qpresults.info.mu_in * qpsettings.alpha_gpdal;
+                break;
+              case PenalizationUpdateRule::Martinez:
+                qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpwork.primal_residual_in_scaled_up(i) +
+              qpresults.z(i) * qpresults.info.mu_in * qpsettings.alpha_gpdal;
+                break;
+            }
+            #else 
             qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
               -qpwork.primal_residual_in_scaled_up(i) +
               qpresults.z(i) * qpresults.info.mu_in * qpsettings.alpha_gpdal;
+            #endif 
+            
           } else if (qpwork.active_set_low(i)) {
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            switch (qpsettings.mu_update_rule){
+              case PenalizationUpdateRule::QPDO:
+                qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpresults.si(i) +
+              qpresults.z(i) * qpresults.info.mu_in_vec(i) * qpsettings.alpha_gpdal;
+                break;
+              case PenalizationUpdateRule::BCL:
+                qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpresults.si(i) +
+              qpresults.z(i) * qpresults.info.mu_in * qpsettings.alpha_gpdal;
+                break;
+              case PenalizationUpdateRule::Martinez:
+                qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+                -qpresults.si(i) +
+                qpresults.z(i) * qpresults.info.mu_in * qpsettings.alpha_gpdal;
+                break;
+            }
+            #else 
             qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
               -qpresults.si(i) +
               qpresults.z(i) * qpresults.info.mu_in * qpsettings.alpha_gpdal;
+            #endif 
+            
           }
         } else {
           // unactive unrelevant columns
@@ -959,8 +1295,26 @@ primal_dual_newton_semi_smooth(const Settings<T>& qpsettings,
     }
     switch (qpsettings.merit_function_type) {
       case MeritFunctionType::GPDAL:
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        switch (qpsettings.mu_update_rule){
+          case PenalizationUpdateRule::QPDO:
+            Cdx.noalias() +=
+          (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in_vec.cwiseProduct(dz);
+            break;
+          case PenalizationUpdateRule::BCL:
+            Cdx.noalias() +=
+          (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in * dz;
+            break;
+          case PenalizationUpdateRule::Martinez:
+            Cdx.noalias() +=
+          (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in * dz;
+            break;
+        }
+        #else 
         Cdx.noalias() +=
           (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in * dz;
+        #endif 
+        
         break;
       case MeritFunctionType::PDAL:
         break;
@@ -990,7 +1344,28 @@ primal_dual_newton_semi_smooth(const Settings<T>& qpsettings,
     qpresults.si += alpha * Cdx;
 
     // qpwork.primal_residual_eq_scaled +=
-    qpresults.se += alpha * (Adx - qpresults.info.mu_eq * dy);
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    switch(qpsettings.mu_update_rule){
+      case PenalizationUpdateRule::QPDO:
+        qpresults.se += alpha * (Adx - qpresults.info.mu_eq_vec.cwiseProduct(dy));
+        break;
+      case PenalizationUpdateRule::BCL:
+        qpresults.se += alpha * (Adx - qpresults.info.mu_eq * dy);
+        break;
+      case PenalizationUpdateRule::Martinez:
+        qpresults.se += alpha * (Adx - qpresults.info.mu_eq * dy);
+        break;
+    }
+    #else 
+    switch(qpsettings.mu_update_rule){
+      case PenalizationUpdateRule::BCL:
+        qpresults.se += alpha * (Adx - qpresults.info.mu_eq * dy);
+        break;
+      case PenalizationUpdateRule::Martinez:
+        qpresults.se += alpha * (Adx - qpresults.info.mu_eq * dy);
+        break;
+    }
+    #endif 
     qpresults.y += alpha * dy;
     qpresults.z += alpha * dz;
     switch (hessian_type) {
@@ -1105,14 +1480,47 @@ qp_solve( //
   std::cout << "test " << test << std::endl;
   */
   PROXSUITE_EIGEN_MALLOC_NOT_ALLOWED();
-  isize n_constraints(qpmodel.n_in);
-  if (box_constraints) {
-    n_constraints += qpmodel.dim;
-  }
   if (qpsettings.compute_timings) {
     qpwork.timer.stop();
     qpwork.timer.start();
   }
+
+  T bcl_eta_ext_init = pow(T(0.1), qpsettings.alpha_bcl);
+  T bcl_eta_ext = bcl_eta_ext_init;
+  T bcl_eta_in(1);
+  T eps_in_min = std::min(qpsettings.eps_abs, T(1.E-9));
+
+  T primal_feasibility_eq_rhs_0(0);
+  T primal_feasibility_in_rhs_0(0);
+  T dual_feasibility_rhs_0(0);
+  T dual_feasibility_rhs_1(0);
+  T dual_feasibility_rhs_3(0);
+  T primal_feasibility_lhs(0);
+  T primal_feasibility_lhs_new(0);
+  T primal_feasibility_eq_lhs(0);
+  T primal_feasibility_in_lhs(0);
+  T dual_feasibility_lhs(0);
+
+  T duality_gap(0);
+  T rhs_duality_gap(0);
+  T scaled_eps(qpsettings.eps_abs);
+  isize n_constraints(qpmodel.n_in);
+  if (box_constraints) {
+    n_constraints += qpmodel.dim;
+  }
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  // these pre-allocations are only necessary to be performed 
+  // when performing mu updates component by component, for example
+  // when using qpdo / qpalm strategies. If you want to use them
+  // activate the option through the CMakeLists.txt first or using ccmake
+  proxsuite::linalg::veg::dynstack::DynStackMut stack{
+    proxsuite::linalg::veg::from_slice_mut, qpwork.ldl_stack.as_mut()
+  };
+  LDLT_TEMP_VEC_UNINIT(T, old_se, qpmodel.n_eq, stack);
+  LDLT_TEMP_VEC_UNINIT(T, old_mu_eq, qpmodel.n_eq, stack);
+  LDLT_TEMP_VEC_UNINIT(T, old_si, qpmodel.n_in, stack);
+  LDLT_TEMP_VEC_UNINIT(T, old_mu_in, qpmodel.n_in, stack);
+  #endif 
   if (qpsettings.verbose) {
     dense::print_setup_header(qpsettings,
                               qpresults,
@@ -1212,6 +1620,33 @@ qp_solve( //
         hessian_type,
         ruiz,
         false); // reuse previous equilibration
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      //initialization of penalization parameters requires computing primal residual
+      switch (qpsettings.mu_update_rule){
+        case PenalizationUpdateRule::QPDO:
+          primal_feasibility_lhs_new = qpresults.info.pri_res;
+          QPDO_update_rule(qpmodel,
+                              qpsettings,
+                              qpresults,
+                              qpwork,
+                              n_constraints,
+                              dense_backend,
+                              ruiz,
+                              box_constraints,
+                              primal_feasibility_lhs_new,
+                              { proxqp::from_eigen,old_se },
+                              { proxqp::from_eigen,old_si },
+                              { proxqp::from_eigen,old_mu_eq },
+                              { proxqp::from_eigen,old_mu_in },
+                              bcl_eta_in,
+                              eps_in_min);
+          break;
+        case PenalizationUpdateRule::BCL:
+          break;
+        case PenalizationUpdateRule::Martinez:
+          break;
+      }
+      #endif 
       proxsuite::proxqp::dense::setup_factorization(
         qpwork, qpmodel, qpresults, dense_backend, hessian_type);
     }
@@ -1237,7 +1672,11 @@ qp_solve( //
           }
         }
         linesearch::active_set_change(
-          qpmodel, qpresults, dense_backend, n_constraints, qpwork);
+          qpmodel, qpresults, dense_backend, n_constraints, qpwork
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          ,qpsettings
+          #endif 
+          );
         break;
       }
       case InitialGuessStatus::NO_INITIAL_GUESS: {
@@ -1254,7 +1693,11 @@ qp_solve( //
           }
         }
         linesearch::active_set_change(
-          qpmodel, qpresults, dense_backend, n_constraints, qpwork);
+          qpmodel, qpresults, dense_backend, n_constraints, qpwork
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          ,qpsettings
+          #endif 
+          );
         break;
       }
       case InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT: {
@@ -1269,6 +1712,33 @@ qp_solve( //
            // updating the Qp object
     switch (qpsettings.initial_guess) {
       case InitialGuessStatus::EQUALITY_CONSTRAINED_INITIAL_GUESS: {
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        //initialization of penalization parameters requires computing primal residual
+        switch (qpsettings.mu_update_rule){
+          case PenalizationUpdateRule::QPDO:
+            primal_feasibility_lhs_new = qpresults.info.pri_res;
+            QPDO_update_rule(qpmodel,
+                              qpsettings,
+                              qpresults,
+                              qpwork,
+                              n_constraints,
+                              dense_backend,
+                              ruiz,
+                              box_constraints,
+                              primal_feasibility_lhs_new,
+                              { proxqp::from_eigen,old_se },
+                              { proxqp::from_eigen,old_si },
+                              { proxqp::from_eigen,old_mu_eq },
+                              { proxqp::from_eigen,old_mu_in },
+                              bcl_eta_in,
+                              eps_in_min);
+            break;
+          case PenalizationUpdateRule::BCL:
+            break;
+          case PenalizationUpdateRule::Martinez:
+            break;
+        }
+        #endif 
         proxsuite::proxqp::dense::setup_factorization(
           qpwork, qpmodel, qpresults, dense_backend, hessian_type);
         compute_equality_constrained_initial_guess(qpwork,
@@ -1295,6 +1765,33 @@ qp_solve( //
           ruiz.scale_box_dual_in_place_in(
             { proxsuite::proxqp::from_eigen, qpresults.z.tail(qpmodel.dim) });
         }
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        //initialization of penalization parameters requires computing primal residual
+        switch (qpsettings.mu_update_rule){
+          case PenalizationUpdateRule::QPDO:
+            primal_feasibility_lhs_new = qpresults.info.pri_res;
+            QPDO_update_rule(qpmodel,
+                              qpsettings,
+                              qpresults,
+                              qpwork,
+                              n_constraints,
+                              dense_backend,
+                              ruiz,
+                              box_constraints,
+                              primal_feasibility_lhs_new,
+                              { proxqp::from_eigen,old_se },
+                              { proxqp::from_eigen,old_si },
+                              { proxqp::from_eigen,old_mu_eq },
+                              { proxqp::from_eigen,old_mu_in },
+                              bcl_eta_in,
+                              eps_in_min);
+            break;
+          case PenalizationUpdateRule::BCL:
+            break;
+          case PenalizationUpdateRule::Martinez:
+            break;
+        }
+        #endif 
         setup_factorization(
           qpwork, qpmodel, qpresults, dense_backend, hessian_type);
         qpwork.n_c = 0;
@@ -1306,10 +1803,41 @@ qp_solve( //
           }
         }
         linesearch::active_set_change(
-          qpmodel, qpresults, dense_backend, n_constraints, qpwork);
+          qpmodel, qpresults, dense_backend, n_constraints, qpwork
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          ,qpsettings
+          #endif 
+          );
         break;
       }
       case InitialGuessStatus::NO_INITIAL_GUESS: {
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        //initialization of penalization parameters requires computing primal residual
+        switch (qpsettings.mu_update_rule){
+          case PenalizationUpdateRule::QPDO:
+            primal_feasibility_lhs_new = qpresults.info.pri_res;
+            QPDO_update_rule(qpmodel,
+                              qpsettings,
+                              qpresults,
+                              qpwork,
+                              n_constraints,
+                              dense_backend,
+                              ruiz,
+                              box_constraints,
+                              primal_feasibility_lhs_new,
+                              { proxqp::from_eigen,old_se },
+                              { proxqp::from_eigen,old_si },
+                              { proxqp::from_eigen,old_mu_eq },
+                              { proxqp::from_eigen,old_mu_in },
+                              bcl_eta_in,
+                              eps_in_min);
+            break;
+          case PenalizationUpdateRule::BCL:
+            break;
+          case PenalizationUpdateRule::Martinez:
+            break;
+        }
+        #endif 
         setup_factorization(
           qpwork, qpmodel, qpresults, dense_backend, hessian_type);
         break;
@@ -1326,6 +1854,33 @@ qp_solve( //
           ruiz.scale_box_dual_in_place_in(
             { proxsuite::proxqp::from_eigen, qpresults.z.tail(qpmodel.dim) });
         }
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        //initialization of penalization parameters requires computing primal residual
+        switch (qpsettings.mu_update_rule){
+          case PenalizationUpdateRule::QPDO:
+            primal_feasibility_lhs_new = qpresults.info.pri_res;
+            QPDO_update_rule(qpmodel,
+                              qpsettings,
+                              qpresults,
+                              qpwork,
+                              n_constraints,
+                              dense_backend,
+                              ruiz,
+                              box_constraints,
+                              primal_feasibility_lhs_new,
+                              { proxqp::from_eigen,old_se },
+                              { proxqp::from_eigen,old_si },
+                              { proxqp::from_eigen,old_mu_eq },
+                              { proxqp::from_eigen,old_mu_in },
+                              bcl_eta_in,
+                              eps_in_min);
+            break;
+          case PenalizationUpdateRule::BCL:
+            break;
+          case PenalizationUpdateRule::Martinez:
+            break;
+        }
+        #endif 
         setup_factorization(
           qpwork, qpmodel, qpresults, dense_backend, hessian_type);
         qpwork.n_c = 0;
@@ -1337,7 +1892,11 @@ qp_solve( //
           }
         }
         linesearch::active_set_change(
-          qpmodel, qpresults, dense_backend, n_constraints, qpwork);
+          qpmodel, qpresults, dense_backend, n_constraints, qpwork
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          ,qpsettings
+          #endif 
+          );
         break;
       }
       case InitialGuessStatus::WARM_START_WITH_PREVIOUS_RESULT: {
@@ -1355,6 +1914,33 @@ qp_solve( //
           ruiz.scale_box_dual_in_place_in(
             { proxsuite::proxqp::from_eigen, qpresults.z.tail(qpmodel.dim) });
         }
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        //initialization of penalization parameters requires computing primal residual
+        switch (qpsettings.mu_update_rule){
+          case PenalizationUpdateRule::QPDO:
+            primal_feasibility_lhs_new = qpresults.info.pri_res;
+            QPDO_update_rule(qpmodel,
+                              qpsettings,
+                              qpresults,
+                              qpwork,
+                              n_constraints,
+                              dense_backend,
+                              ruiz,
+                              box_constraints,
+                              primal_feasibility_lhs_new,
+                              { proxqp::from_eigen,old_se },
+                              { proxqp::from_eigen,old_si },
+                              { proxqp::from_eigen,old_mu_eq },
+                              { proxqp::from_eigen,old_mu_in },
+                              bcl_eta_in,
+                              eps_in_min);
+            break;
+          case PenalizationUpdateRule::BCL:
+            break;
+          case PenalizationUpdateRule::Martinez:
+            break;
+        }
+        #endif 
         if (qpwork.refactorize) { // refactorization only when one of the
                                   // matrices has changed or one proximal
                                   // parameter has changed
@@ -1369,31 +1955,22 @@ qp_solve( //
             }
           }
           linesearch::active_set_change(
-            qpmodel, qpresults, dense_backend, n_constraints, qpwork);
+            qpmodel, qpresults, dense_backend, n_constraints, qpwork
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            ,qpsettings
+            #endif 
+            );
           break;
         }
       }
     }
   }
-  T bcl_eta_ext_init = pow(T(0.1), qpsettings.alpha_bcl);
-  T bcl_eta_ext = bcl_eta_ext_init;
-  T bcl_eta_in(1);
-  T eps_in_min = std::min(qpsettings.eps_abs, T(1.E-9));
-
-  T primal_feasibility_eq_rhs_0(0);
-  T primal_feasibility_in_rhs_0(0);
-  T dual_feasibility_rhs_0(0);
-  T dual_feasibility_rhs_1(0);
-  T dual_feasibility_rhs_3(0);
-  T primal_feasibility_lhs(0);
-  T primal_feasibility_eq_lhs(0);
-  T primal_feasibility_in_lhs(0);
-  T dual_feasibility_lhs(0);
-
-  T duality_gap(0);
-  T rhs_duality_gap(0);
-  T scaled_eps(qpsettings.eps_abs);
-
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    // store previous values of se and si for performing then 
+    // the mu updates
+    old_se = qpresults.se;
+    old_si = qpresults.si;  
+  #endif 
   for (i64 iter = 0; iter < qpsettings.max_iter; ++iter) {
 
     // compute primal residual
@@ -1535,8 +2112,18 @@ qp_solve( //
       qpresults.info.mu_in; // contains now scaled(Cx+z_prev*mu_in)
     switch (qpsettings.merit_function_type) {
       case MeritFunctionType::GPDAL:
-        qpwork.primal_residual_in_scaled_up +=
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        if (qpsettings.mu_update_rule!=PenalizationUpdateRule::QPDO){
+          qpwork.primal_residual_in_scaled_up +=
+          (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in_vec.cwiseProduct(qpresults.z);
+        }else{
+          qpwork.primal_residual_in_scaled_up +=
           (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in * qpresults.z;
+        }
+        #else 
+          qpwork.primal_residual_in_scaled_up +=
+          (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in * qpresults.z;
+        #endif 
         break;
       case MeritFunctionType::PDAL:
         break;
@@ -1593,7 +2180,7 @@ qp_solve( //
       scaled_eps =
         infty_norm(qpwork.rhs.head(qpmodel.dim)) * qpsettings.eps_abs;
     }
-    T primal_feasibility_lhs_new(primal_feasibility_lhs);
+    primal_feasibility_lhs_new = primal_feasibility_lhs;
 
     global_primal_residual(qpmodel,
                            qpresults,
@@ -1664,22 +2251,23 @@ qp_solve( //
         }
       }
     }
-    if (qpsettings.bcl_update) {
-      bcl_update(qpsettings,
-                 qpresults,
-                 qpwork,
-                 primal_feasibility_lhs_new,
-                 bcl_eta_ext,
-                 bcl_eta_in,
-                 bcl_eta_ext_init,
-                 eps_in_min,
-
-                 new_bcl_mu_in,
-                 new_bcl_mu_eq,
-                 new_bcl_mu_in_inv,
-                 new_bcl_mu_eq_inv);
-    } else {
-      Martinez_update(qpsettings,
+    switch (qpsettings.mu_update_rule) {
+      case PenalizationUpdateRule::BCL:
+        bcl_update(qpsettings,
+                  qpresults,
+                  qpwork,
+                  primal_feasibility_lhs_new,
+                  bcl_eta_ext,
+                  bcl_eta_in,
+                  bcl_eta_ext_init,
+                  eps_in_min,
+                  new_bcl_mu_in,
+                  new_bcl_mu_eq,
+                  new_bcl_mu_in_inv,
+                  new_bcl_mu_eq_inv);
+        break;
+      case PenalizationUpdateRule::Martinez:
+        Martinez_update(qpsettings,
                       qpresults,
                       primal_feasibility_lhs_new,
                       primal_feasibility_lhs,
@@ -1689,6 +2277,29 @@ qp_solve( //
                       new_bcl_mu_eq,
                       new_bcl_mu_in_inv,
                       new_bcl_mu_eq_inv);
+        break;
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      case PenalizationUpdateRule::QPDO:
+        QPDO_update_rule(
+                      qpmodel,
+                      qpsettings,
+                      qpresults,
+                      qpwork,
+                      n_constraints,
+                      dense_backend,
+                      ruiz,
+                      box_constraints,
+                      primal_feasibility_lhs_new,
+                      { proxqp::from_eigen,old_se },
+                      { proxqp::from_eigen,old_si },
+                      { proxqp::from_eigen,old_mu_eq },
+                      { proxqp::from_eigen,old_mu_in },
+                      bcl_eta_in,
+                      eps_in_min);
+        break;
+        old_se = qpresults.se;
+        old_si = qpresults.si;
+      #endif
     }
     // COLD RESTART
 
@@ -1711,7 +2322,11 @@ qp_solve( //
 
     if (primal_feasibility_lhs_new >= primal_feasibility_lhs &&
         dual_feasibility_lhs_new >= dual_feasibility_lhs &&
-        qpresults.info.mu_in <= T(1e-5)) {
+        qpresults.info.mu_in <= T(1e-5) 
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        && qpsettings.mu_update_rule != PenalizationUpdateRule::QPDO
+        #endif
+        ) {
       /* to put in debuger mode
       if (qpsettings.verbose) {
               std::cout << "cold restart" << std::endl;
@@ -1726,8 +2341,12 @@ qp_solve( //
 
     /// effective mu upddate
 
-    if (qpresults.info.mu_in != new_bcl_mu_in ||
-        qpresults.info.mu_eq != new_bcl_mu_eq) {
+    if ((qpresults.info.mu_in != new_bcl_mu_in ||
+        qpresults.info.mu_eq != new_bcl_mu_eq)
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        && qpsettings.mu_update_rule != PenalizationUpdateRule::QPDO
+        #endif
+        ) {
       {
         ++qpresults.info.mu_updates;
       }
@@ -1737,7 +2356,13 @@ qp_solve( //
                 n_constraints,
                 dense_backend,
                 new_bcl_mu_eq,
-                new_bcl_mu_in);
+                new_bcl_mu_in
+                #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                ,qpsettings,
+                {from_eigen, old_mu_eq},
+                {from_eigen, old_mu_in}
+                #endif
+                );
     }
 
     qpresults.info.mu_eq = new_bcl_mu_eq;

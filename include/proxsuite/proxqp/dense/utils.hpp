@@ -189,6 +189,27 @@ global_primal_residual(const Model<T>& qpmodel,
   // primal_residual_in_scaled_u = unscaled(Cx)
   // primal_residual_in_scaled_l = unscaled([Cx - u]+ + [Cx - l]-)
   // qpwork.primal_residual_eq_scaled.noalias() = qpwork.A_scaled * qpresults.x;
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  if (qpresults.info.iter_ext==0&&qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+  // all what you have at the else condition has already been computed before
+  primal_feasibility_in_lhs = infty_norm(qpresults.si);
+  // primal_feasibility_eq_lhs = infty_norm(qpwork.primal_residual_eq_scaled);
+  primal_feasibility_eq_lhs = infty_norm(qpresults.se);
+  primal_feasibility_lhs =
+    std::max(primal_feasibility_eq_lhs, primal_feasibility_in_lhs);
+  if (qpsettings.primal_infeasibility_solving &&
+      qpresults.info.status == QPSolverOutput::PROXQP_PRIMAL_INFEASIBLE) {
+    qpwork.rhs.head(qpmodel.dim).noalias() =
+      qpmodel.A.transpose() * qpresults.se;
+    qpwork.rhs.head(qpmodel.dim).noalias() +=
+      qpmodel.C.transpose() * qpresults.si;
+    primal_feasibility_lhs = infty_norm(qpwork.rhs.head(qpmodel.dim));
+  }
+  ruiz.scale_primal_residual_in_place_eq(
+    VectorViewMut<T>{ from_eigen, qpresults.se });
+  }else{
+  #endif
+  
   qpresults.se.noalias() = qpwork.A_scaled * qpresults.x;
   qpwork.primal_residual_in_scaled_up.head(qpmodel.n_in).noalias() =
     qpwork.C_scaled * qpresults.x;
@@ -232,7 +253,9 @@ global_primal_residual(const Model<T>& qpmodel,
   }
   // qpwork.primal_residual_eq_scaled -= qpmodel.b;
   qpresults.se -= qpmodel.b;
-
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  }
+  #endif
   primal_feasibility_in_lhs = infty_norm(qpresults.si);
   // primal_feasibility_eq_lhs = infty_norm(qpwork.primal_residual_eq_scaled);
   primal_feasibility_eq_lhs = infty_norm(qpresults.se);

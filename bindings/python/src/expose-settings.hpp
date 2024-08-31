@@ -46,6 +46,15 @@ exposeSettings(pybind11::module_ m)
     .value("PowerIteration", EigenValueEstimateMethodOption::PowerIteration)
     .value("ExactMethod", EigenValueEstimateMethodOption::ExactMethod)
     .export_values();
+  
+  ::pybind11::enum_<PenalizationUpdateRule>(
+    m, "PenalizationUpdateRule", pybind11::module_local())
+    .value("BCL", PenalizationUpdateRule::BCL)
+    .value("Martinez", PenalizationUpdateRule::Martinez)
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    .value("QPDO", PenalizationUpdateRule::QPDO)
+    #endif
+    .export_values();
 
   ::pybind11::class_<Settings<T>>(m, "Settings", pybind11::module_local())
     .def(::pybind11::init(), "Default constructor.") // constructor
@@ -87,7 +96,7 @@ exposeSettings(pybind11::module_ m)
     .def_readwrite("eps_duality_gap_abs", &Settings<T>::eps_duality_gap_abs)
     .def_readwrite("eps_duality_gap_rel", &Settings<T>::eps_duality_gap_rel)
     .def_readwrite("verbose", &Settings<T>::verbose)
-    .def_readwrite("bcl_update", &Settings<T>::bcl_update)
+    .def_readwrite("mu_update_rule", &Settings<T>::mu_update_rule)
     .def_readwrite("merit_function_type", &Settings<T>::merit_function_type)
     .def_readwrite("alpha_gpdal", &Settings<T>::alpha_gpdal)
     .def_readwrite("primal_infeasibility_solving",
