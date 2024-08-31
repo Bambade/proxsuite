@@ -196,9 +196,7 @@ mu_update(const Model<T>& qpmodel,
           T mu_eq_new,
           T mu_in_new
           #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-          ,const Settings<T>& qpsettings,
-          VectorViewMut<T> old_mu_eq,
-          VectorViewMut<T> old_mu_in
+          ,const Settings<T>& qpsettings
           #endif
           )
 {
@@ -219,8 +217,8 @@ mu_update(const Model<T>& qpmodel,
 
       #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
       if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
-        rank_update_alpha.head(n_eq)=qpresults.info.mu_eq_vec-old_mu_eq.to_eigen();
-        rank_update_alpha.tail(n_c)=qpresults.info.mu_in_vec.tail(n_c)-old_mu_in.to_eigen().tail(n_c);
+        rank_update_alpha.head(n_eq)=qpresults.info.mu_eq_vec-qpwork.old_mu_eq;
+        rank_update_alpha.tail(n_c)=qpresults.info.mu_in_vec.tail(n_c)-qpwork.old_mu_in.tail(n_c);
       }else{
         rank_update_alpha.head(n_eq).setConstant(qpresults.info.mu_eq -
                                                mu_eq_new);
@@ -294,7 +292,7 @@ mu_update(const Model<T>& qpmodel,
               if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
                 // here it is the opposite bc we QPDO_update we update first mu and then
                 // call mu_update to perform the rank updates
-                T delta_mu(qpresults.info.mu_in_inv-T(1) / old_mu_in.to_eigen()(i-qpmodel.n_in));
+                T delta_mu(qpresults.info.mu_in_inv-T(1) / qpwork.old_mu_in(i-qpmodel.n_in));
                 qpwork.dw_aug[i- qpmodel.n_in]=delta_mu ;
               }
               #endif 
@@ -305,7 +303,7 @@ mu_update(const Model<T>& qpmodel,
               if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
                 // here it is the opposite bc we QPDO_update we update first mu and then
                 // call mu_update to perform the rank updates
-                T delta_mu(qpresults.info.mu_in_vec_inv[i] -T(1) / old_mu_in.to_eigen()(i-qpmodel.n_in));
+                T delta_mu(qpresults.info.mu_in_vec_inv[i] -T(1) / qpwork.old_mu_in(i-qpmodel.n_in));
                 qpwork.dw_aug[i]=delta_mu ;
               }
               #endif 
@@ -325,7 +323,7 @@ mu_update(const Model<T>& qpmodel,
                 // here it is the opposite bc we QPDO_update we update first mu and then
                 // call mu_update to perform the rank updates
                 for (isize i=0;i<qpmodel.n_eq;i++){
-                  T delta_mu(qpresults.info.mu_eq_vec_inv[i]-T(1) / old_mu_eq.to_eigen()(i));
+                  T delta_mu(qpresults.info.mu_eq_vec_inv[i]-T(1) / qpwork.old_mu_eq(i));
                   qpwork.dw_aug[i]=delta_mu ;
                 }
               }else{
@@ -826,10 +824,6 @@ QPDO_update_rule(
                 const preconditioner::RuizEquilibration<T>& ruiz,
                 const bool box_constraints,
                 T& primal_feasibility_lhs_new,
-                VectorViewMut<T> old_se,
-                VectorViewMut<T> old_si,
-                VectorViewMut<T> old_mu_eq,
-                VectorViewMut<T> old_mu_in,
                 T& bcl_eta_in,
                 T eps_in_min
 )
@@ -890,13 +884,13 @@ QPDO_update_rule(
     for (isize i=0;i<qpmodel.n_eq;i++){
       qpresults.info.mu_eq_vec[i]=std::max(T(1),T(std::pow(qpresults.se[i],2)))*factor;
       qpresults.info.mu_eq_vec[i]=std::max(std::min(T(1.E-3),qpresults.info.mu_eq_vec[i]),T(1.E3));
-      old_mu_eq.to_eigen()[i] = qpresults.info.mu_eq_vec[i];
+      qpwork.old_mu_eq[i] = qpresults.info.mu_eq_vec[i];
       qpresults.info.mu_eq_vec_inv[i]=T(1)/qpresults.info.mu_eq_vec[i];
     }
     for (isize i=0;i<qpmodel.n_in;i++){
       qpresults.info.mu_in_vec[i]=std::max(T(1),T(std::pow(qpresults.si[i],2)))*factor;
       qpresults.info.mu_in_vec[i]=std::max(std::min(T(1.E-3),qpresults.info.mu_in_vec[i]),T(1.E3));
-      old_mu_in.to_eigen()[i] = qpresults.info.mu_in_vec[i];
+      qpwork.old_mu_in[i] = qpresults.info.mu_in_vec[i];
       qpresults.info.mu_in_vec_inv[i]=T(1)/qpresults.info.mu_in_vec[i];
     }
   }else{
@@ -908,7 +902,7 @@ QPDO_update_rule(
     // the update is performed component by component 
     for (isize i=0;i<qpmodel.n_eq;i++){
         T abs_se = std::abs(qpresults.se[i]) ;
-        if (abs_se > std::max(std::abs(old_se.to_eigen()[i]*0.25),qpsettings.eps_abs) ){
+        if (abs_se > std::max(std::abs(qpwork.old_se[i]*0.25),qpsettings.eps_abs) ){
           T factor = 1.E-2 * qpresults.info.mu_eq_vec[i] * primal_feasibility_lhs_new / abs_se;
           T new_mu = std::max(std::min(factor,1.E-9),qpresults.info.mu_eq_vec[i]);
           if (new_mu!= qpresults.info.mu_eq_vec[i]) rank_update=true;
@@ -918,7 +912,7 @@ QPDO_update_rule(
     }
     for (isize i=0;i<qpmodel.n_in;i++){
         T abs_si = std::abs(qpresults.si[i]) ;
-        if (abs_si > std::max(std::abs(old_si.to_eigen()[i]*0.25),qpsettings.eps_abs) ){
+        if (abs_si > std::max(std::abs(qpwork.old_si[i]*0.25),qpsettings.eps_abs) ){
           T factor = 1.E-2 * qpresults.info.mu_in_vec[i] * primal_feasibility_lhs_new / abs_si;
           T new_mu = std::max(std::min(factor,1.E-9),qpresults.info.mu_in_vec[i]);
           if (new_mu!= qpresults.info.mu_in_vec[i]) rank_update=true;
@@ -953,15 +947,13 @@ QPDO_update_rule(
                 dense_backend,
                 new_bcl_mu_eq,
                 new_bcl_mu_in,
-                qpsettings,
-                old_mu_eq,
-                old_mu_in
+                qpsettings
                 );
       }
     }
     // update old values
-    old_mu_eq.to_eigen()=qpresults.info.mu_eq_vec;
-    old_mu_in.to_eigen()=qpresults.info.mu_in_vec;
+    qpwork.old_mu_eq=qpresults.info.mu_eq_vec;
+    qpwork.old_mu_in=qpresults.info.mu_in_vec;
   }
 }
 #endif
@@ -1508,19 +1500,6 @@ qp_solve( //
   if (box_constraints) {
     n_constraints += qpmodel.dim;
   }
-  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-  // these pre-allocations are only necessary to be performed 
-  // when performing mu updates component by component, for example
-  // when using qpdo / qpalm strategies. If you want to use them
-  // activate the option through the CMakeLists.txt first or using ccmake
-  proxsuite::linalg::veg::dynstack::DynStackMut stack{
-    proxsuite::linalg::veg::from_slice_mut, qpwork.ldl_stack.as_mut()
-  };
-  LDLT_TEMP_VEC_UNINIT(T, old_se, qpmodel.n_eq, stack);
-  LDLT_TEMP_VEC_UNINIT(T, old_mu_eq, qpmodel.n_eq, stack);
-  LDLT_TEMP_VEC_UNINIT(T, old_si, qpmodel.n_in, stack);
-  LDLT_TEMP_VEC_UNINIT(T, old_mu_in, qpmodel.n_in, stack);
-  #endif 
   if (qpsettings.verbose) {
     dense::print_setup_header(qpsettings,
                               qpresults,
@@ -1634,10 +1613,6 @@ qp_solve( //
                               ruiz,
                               box_constraints,
                               primal_feasibility_lhs_new,
-                              { proxqp::from_eigen,old_se },
-                              { proxqp::from_eigen,old_si },
-                              { proxqp::from_eigen,old_mu_eq },
-                              { proxqp::from_eigen,old_mu_in },
                               bcl_eta_in,
                               eps_in_min);
           break;
@@ -1726,10 +1701,6 @@ qp_solve( //
                               ruiz,
                               box_constraints,
                               primal_feasibility_lhs_new,
-                              { proxqp::from_eigen,old_se },
-                              { proxqp::from_eigen,old_si },
-                              { proxqp::from_eigen,old_mu_eq },
-                              { proxqp::from_eigen,old_mu_in },
                               bcl_eta_in,
                               eps_in_min);
             break;
@@ -1779,10 +1750,6 @@ qp_solve( //
                               ruiz,
                               box_constraints,
                               primal_feasibility_lhs_new,
-                              { proxqp::from_eigen,old_se },
-                              { proxqp::from_eigen,old_si },
-                              { proxqp::from_eigen,old_mu_eq },
-                              { proxqp::from_eigen,old_mu_in },
                               bcl_eta_in,
                               eps_in_min);
             break;
@@ -1825,10 +1792,6 @@ qp_solve( //
                               ruiz,
                               box_constraints,
                               primal_feasibility_lhs_new,
-                              { proxqp::from_eigen,old_se },
-                              { proxqp::from_eigen,old_si },
-                              { proxqp::from_eigen,old_mu_eq },
-                              { proxqp::from_eigen,old_mu_in },
                               bcl_eta_in,
                               eps_in_min);
             break;
@@ -1868,10 +1831,6 @@ qp_solve( //
                               ruiz,
                               box_constraints,
                               primal_feasibility_lhs_new,
-                              { proxqp::from_eigen,old_se },
-                              { proxqp::from_eigen,old_si },
-                              { proxqp::from_eigen,old_mu_eq },
-                              { proxqp::from_eigen,old_mu_in },
                               bcl_eta_in,
                               eps_in_min);
             break;
@@ -1928,10 +1887,6 @@ qp_solve( //
                               ruiz,
                               box_constraints,
                               primal_feasibility_lhs_new,
-                              { proxqp::from_eigen,old_se },
-                              { proxqp::from_eigen,old_si },
-                              { proxqp::from_eigen,old_mu_eq },
-                              { proxqp::from_eigen,old_mu_in },
                               bcl_eta_in,
                               eps_in_min);
             break;
@@ -1968,8 +1923,8 @@ qp_solve( //
   #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
     // store previous values of se and si for performing then 
     // the mu updates
-    old_se = qpresults.se;
-    old_si = qpresults.si;  
+    qpwork.old_se = qpresults.se;
+    qpwork.old_si = qpresults.si;  
   #endif 
   for (i64 iter = 0; iter < qpsettings.max_iter; ++iter) {
 
@@ -2290,15 +2245,11 @@ qp_solve( //
                       ruiz,
                       box_constraints,
                       primal_feasibility_lhs_new,
-                      { proxqp::from_eigen,old_se },
-                      { proxqp::from_eigen,old_si },
-                      { proxqp::from_eigen,old_mu_eq },
-                      { proxqp::from_eigen,old_mu_in },
                       bcl_eta_in,
                       eps_in_min);
         break;
-        old_se = qpresults.se;
-        old_si = qpresults.si;
+        qpwork.old_se = qpresults.se;
+        qpwork.old_si = qpresults.si;
       #endif
     }
     // COLD RESTART
@@ -2358,9 +2309,7 @@ qp_solve( //
                 new_bcl_mu_eq,
                 new_bcl_mu_in
                 #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-                ,qpsettings,
-                {from_eigen, old_mu_eq},
-                {from_eigen, old_mu_in}
+                ,qpsettings
                 #endif
                 );
     }

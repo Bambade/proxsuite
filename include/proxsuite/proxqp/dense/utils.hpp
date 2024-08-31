@@ -75,6 +75,19 @@ print_setup_header(const Settings<T>& settings,
     case DenseBackend::Automatic:
       break;
   }
+  switch (settings.mu_update_rule) {
+    case PenalizationUpdateRule::BCL:
+      std::cout << "          mu update rule: BCL, " << std::endl;
+      break;
+    case PenalizationUpdateRule::Martinez:
+      std::cout << "          mu update rule: Martinez, " << std::endl;
+      break;
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    case PenalizationUpdateRule::Automatic:
+      std::cout << "          mu update rule: QPDO, " << std::endl;
+      break;
+    #endif 
+  }
   switch (hessian_type) {
     case HessianType::Dense:
       std::cout << "          problem type: Quadratic Program, " << std::endl;

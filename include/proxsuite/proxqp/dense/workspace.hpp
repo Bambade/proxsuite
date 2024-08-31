@@ -65,7 +65,16 @@ struct Workspace
   Vec<T> Hdx;
   Vec<T> Cdx;
   Vec<T> Adx;
-
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  // these pre-allocations are only necessary to be performed 
+  // when performing mu updates component by component, for example
+  // when using qpdo / qpalm strategies. If you want to use them
+  // activate the option through the CMakeLists.txt first or using ccmake
+  Vec<T> old_se;
+  Vec<T> old_si;
+  Vec<T> old_mu_eq;
+  Vec<T> old_mu_in;
+  #endif 
   Vec<T> active_part_z;
   proxsuite::linalg::veg::Vec<T> alphas;
 
@@ -116,6 +125,12 @@ struct Workspace
     , y_prev(n_eq)
     , Hdx(dim)
     , Adx(n_eq)
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    , old_se(n_eq)
+    , old_si(n_in)
+    , old_mu_eq(n_eq)
+    , old_mu_in(n_in)
+    #endif 
     , dual_residual_scaled(dim)
     , CTz(dim)
     , constraints_changed(false)
@@ -132,7 +147,10 @@ struct Workspace
       l_box_scaled.setZero();
       i_scaled.resize(dim);
       i_scaled.setOnes();
-
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      old_si.resize(dim+n_in);
+      old_mu_in.resize(dim+n_in);
+      #endif 
       z_prev.resize(dim + n_in);
       // TODO appropriate heuristic for automatic choice
       switch (dense_backend) {
@@ -145,13 +163,8 @@ struct Workspace
               proxsuite::linalg::dense::Ldlt<T>::factorize_req(dim + n_eq +
                                                                n_in + dim) |
               (
-                #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-                proxsuite::linalg::dense::temp_vec_req(
-                 proxsuite::linalg::veg::Tag<T>{}, 3*(n_eq + n_in + dim)) 
-                #else 
                 proxsuite::linalg::dense::temp_vec_req(
                  proxsuite::linalg::veg::Tag<T>{}, n_eq + n_in + dim) 
-                #endif 
                  &
                proxsuite::linalg::veg::dynstack::StackReq{
                  isize{ sizeof(isize) } * (n_eq + n_in + dim),
@@ -180,14 +193,8 @@ struct Workspace
               proxsuite::linalg::dense::Ldlt<T>::factorize_req(dim) |
               // check simplification possible
               (
-                #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-                proxsuite::linalg::dense::temp_vec_req(
-                 proxsuite::linalg::veg::Tag<T>{}, 3*(n_eq + n_in+ dim)) 
-                #else
                 proxsuite::linalg::dense::temp_vec_req(
                  proxsuite::linalg::veg::Tag<T>{}, n_eq + n_in + dim)
-                #endif 
-                 
                  &
                proxsuite::linalg::veg::dynstack::StackReq{
                  isize{ sizeof(isize) } * (n_eq + n_in + dim),
@@ -318,6 +325,12 @@ struct Workspace
     Hdx.setZero();
     Cdx.setZero();
     Adx.setZero();
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    old_se.setZero();
+    old_si.setZero();
+    old_mu_eq.setOnes();
+    old_mu_in.setOnes();
+    #endif
     active_part_z.setZero();
     dw_aug.setZero();
     rhs.setZero();
@@ -353,6 +366,12 @@ struct Workspace
     Hdx.setZero();
     Cdx.setZero();
     Adx.setZero();
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    old_se.setZero();
+    old_si.setZero();
+    old_mu_eq.setOnes();
+    old_mu_in.setOnes();
+    #endif
     active_part_z.setZero();
     dw_aug.setZero();
     rhs.setZero();
