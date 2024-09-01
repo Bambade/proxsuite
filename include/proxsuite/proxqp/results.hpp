@@ -61,6 +61,31 @@ struct Info
   SparseBackend sparse_backend;
   //// quadratic cost minimal eigenvalue estimate
   T minimal_H_eigenvalue_estimate;
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  Info(
+        isize dim = 0,
+        isize n_eq = 0,
+        isize n_in = 0,
+        bool box_constraints = false
+       ):
+      mu_eq_vec(n_eq),
+      mu_in_vec(n_in), // Initialize mu_in_vec based on box_constraints
+      mu_eq_vec_inv(n_eq),
+      mu_in_vec_inv(n_in)  // Initialize mu_in_vec_inv based on box_constraints
+      {
+      if (box_constraints) {
+        mu_in_vec.resize(dim+n_in);
+        mu_in_vec_inv.resize(dim+n_in);
+      } else {
+        mu_in_vec.resize(n_in);
+        mu_in_vec_inv.resize(n_in);
+      }
+        mu_eq_vec.setOnes();
+        mu_in_vec.setOnes();
+        mu_eq_vec_inv.setOnes();
+        mu_in_vec_inv.setOnes();
+      }
+  #endif 
 };
 ///
 /// @brief This class stores all the results of PROXQP solvers with sparse and
@@ -86,7 +111,6 @@ struct Results
 
   Info<T> info;
 
-  ////// SOLUTION STATUS
   /*!
    * Default constructor.
    * @param dim dimension of the primal variable.
@@ -103,23 +127,31 @@ struct Results
     , z(n_in)
     , se(n_eq)
     , si(n_in)
-  {
     #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-      info.mu_eq_vec.resize(n_eq);
-      info.mu_eq_vec_inv.resize(n_eq);
-    #endif 
+    , info({
+        dim,
+        n_eq,
+        n_in,
+        box_constraints
+    })
+    #endif
+  {
+    // #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    //   info.mu_eq_vec.resize(n_eq);
+    //   info.mu_eq_vec_inv.resize(n_eq);
+    // #endif 
     if (box_constraints) {
       z.resize(dim + n_in);
       si.resize(dim + n_in);
-      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-      info.mu_in_vec.resize(dim+n_in);
-      info.mu_in_vec_inv.resize(dim+n_in);
-      #endif 
+      // #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      // info.mu_in_vec.resize(dim+n_in);
+      // info.mu_in_vec_inv.resize(dim+n_in);
+      // #endif 
     } else {
-      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-      info.mu_in_vec.resize(n_in);
-      info.mu_in_vec_inv.resize(n_in);
-      #endif 
+      // #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      // info.mu_in_vec.resize(n_in);
+      // info.mu_in_vec_inv.resize(n_in);
+      // #endif 
       z.resize(n_in);
       si.resize(n_in);
     }
@@ -143,12 +175,6 @@ struct Results
     info.mu_eq = 1e-3;
     info.mu_in_inv = 1e1;
     info.mu_in = 1e-1;
-    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-    info.mu_eq_vec.setOnes();
-    info.mu_in_vec.setOnes();
-    info.mu_eq_vec_inv.setOnes();
-    info.mu_eq_vec_inv.setOnes();
-    #endif 
     info.nu = 1.;
     info.iter = 0;
     info.iter_ext = 0;

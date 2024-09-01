@@ -32,10 +32,25 @@ exposeResults(pybind11::module_ m)
     .export_values();
 
   ::pybind11::class_<Info<T>>(m, "Info", pybind11::module_local())
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        .def(::pybind11::init<i64, i64, i64, bool>(),
+         pybind11::arg_v("n", 0, "primal dimension."),
+         pybind11::arg_v("n_eq", 0, "number of equality constraints."),
+         pybind11::arg_v("n_in", 0, "number of inequality constraints."),
+         pybind11::arg_v("box_constraints", false, "boolean for specifying box constraints or not."),
+         "Constructor from QP model dimensions.") // constructor
+    #else 
     .def(::pybind11::init(), "Default constructor.")
+    #endif 
     .def_readwrite("mu_eq", &Info<T>::mu_eq)
     .def_readwrite("mu_in", &Info<T>::mu_in)
     .def_readwrite("rho", &Info<T>::rho)
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    .PROXSUITE_PYTHON_EIGEN_READWRITE(Info<T>, mu_eq_vec, "Vector of mu penalization for equalities (only used with QPDO mu update option).")
+    .PROXSUITE_PYTHON_EIGEN_READWRITE(Info<T>, mu_in_vec, "Vector of mu penalization for inequalities (only used with QPDO mu update option).")
+    .PROXSUITE_PYTHON_EIGEN_READWRITE(Info<T>, mu_eq_vec_inv, "Component wise inverse vector of mu penalization for equalities (only used with QPDO mu update option).")
+    .PROXSUITE_PYTHON_EIGEN_READWRITE(Info<T>, mu_in_vec_inv, "Component wise inverse vector of mu penalization for inequalities (only used with QPDO mu update option).")
+    #endif 
     .def_readwrite("iter", &Info<T>::iter)
     .def_readwrite("iter_ext", &Info<T>::iter_ext)
     .def_readwrite("run_time", &Info<T>::run_time)
@@ -61,10 +76,11 @@ exposeResults(pybind11::module_ m)
                    "find_H_minimal_eigenvalue.");
 
   ::pybind11::class_<Results<T>>(m, "Results", pybind11::module_local())
-    .def(::pybind11::init<i64, i64, i64>(),
+    .def(::pybind11::init<i64, i64, i64, bool>(),
          pybind11::arg_v("n", 0, "primal dimension."),
          pybind11::arg_v("n_eq", 0, "number of equality constraints."),
          pybind11::arg_v("n_in", 0, "number of inequality constraints."),
+         pybind11::arg_v("box_constraints", false, "boolean for specifying box constraints or not."),
          "Constructor from QP model dimensions.") // constructor
     .PROXSUITE_PYTHON_EIGEN_READWRITE(Results<T>, x, "The primal solution.")
     .PROXSUITE_PYTHON_EIGEN_READWRITE(

@@ -83,7 +83,7 @@ print_setup_header(const Settings<T>& settings,
       std::cout << "          mu update rule: Martinez, " << std::endl;
       break;
     #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-    case PenalizationUpdateRule::Automatic:
+    case PenalizationUpdateRule::QPDO:
       std::cout << "          mu update rule: QPDO, " << std::endl;
       break;
     #endif 

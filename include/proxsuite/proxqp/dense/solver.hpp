@@ -2068,7 +2068,7 @@ qp_solve( //
     switch (qpsettings.merit_function_type) {
       case MeritFunctionType::GPDAL:
         #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-        if (qpsettings.mu_update_rule!=PenalizationUpdateRule::QPDO){
+        if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
           qpwork.primal_residual_in_scaled_up +=
           (qpsettings.alpha_gpdal - 1.) * qpresults.info.mu_in_vec.cwiseProduct(qpresults.z);
         }else{

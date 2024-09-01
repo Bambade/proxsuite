@@ -21,6 +21,12 @@ serialize(Archive& archive, proxsuite::proxqp::Info<T>& info)
           CEREAL_NVP(info.mu_eq_inv),
           CEREAL_NVP(info.mu_in),
           CEREAL_NVP(info.mu_in_inv),
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          CEREAL_NVP(info.mu_eq_vec),
+          CEREAL_NVP(info.mu_eq_vec_inv),
+          CEREAL_NVP(info.mu_in_vec),
+          CEREAL_NVP(info.mu_in_vec_inv),
+          #endif
           CEREAL_NVP(info.rho),
           CEREAL_NVP(info.nu),
           CEREAL_NVP(info.iter),
