@@ -217,8 +217,8 @@ mu_update(const Model<T>& qpmodel,
 
       #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
       if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
-        rank_update_alpha.head(n_eq)=qpresults.info.mu_eq_vec-qpwork.old_mu_eq;
-        rank_update_alpha.tail(n_c)=qpresults.info.mu_in_vec.tail(n_c)-qpwork.old_mu_in.tail(n_c);
+        rank_update_alpha.head(n_eq)=qpwork.old_mu_eq-qpresults.info.mu_eq_vec;
+        rank_update_alpha.tail(n_c)=qpwork.old_mu_in.tail(n_c)-qpresults.info.mu_in_vec.tail(n_c);
       }else{
         rank_update_alpha.head(n_eq).setConstant(qpresults.info.mu_eq -
                                                mu_eq_new);
@@ -292,7 +292,7 @@ mu_update(const Model<T>& qpmodel,
               if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
                 // here it is the opposite bc we QPDO_update we update first mu and then
                 // call mu_update to perform the rank updates
-                T delta_mu(qpresults.info.mu_in_inv-T(1) / qpwork.old_mu_in(i-qpmodel.n_in));
+                T delta_mu(qpresults.info.mu_in_vec_inv(i-qpmodel.n_in)-T(1) / qpwork.old_mu_in(i-qpmodel.n_in));
                 qpwork.dw_aug[i- qpmodel.n_in]=delta_mu ;
               }
               #endif 
@@ -303,7 +303,7 @@ mu_update(const Model<T>& qpmodel,
               if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
                 // here it is the opposite bc we QPDO_update we update first mu and then
                 // call mu_update to perform the rank updates
-                T delta_mu(qpresults.info.mu_in_vec_inv[i] -T(1) / qpwork.old_mu_in(i-qpmodel.n_in));
+                T delta_mu(qpresults.info.mu_in_vec_inv[i] -T(1) / qpwork.old_mu_in(i));
                 qpwork.dw_aug[i]=delta_mu ;
               }
               #endif 
@@ -1049,7 +1049,7 @@ QPDO_update_rule(
         T abs_se = std::abs(qpresults.se[i]) ;
         if (abs_se > std::max(std::abs(qpwork.old_se[i])*0.25,qpsettings.eps_abs) ){
           T new_mu = 1.E-2 * qpresults.info.mu_eq_vec[i] * primal_feasibility_lhs_new / abs_se;
-          if (new_mu<1.E-9) new_mu = 1.E-9;
+          if (new_mu<qpsettings.mu_min_eq) new_mu = qpsettings.mu_min_eq;
           if (new_mu>qpresults.info.mu_eq_vec[i]) new_mu = qpresults.info.mu_eq_vec[i];
           if (new_mu!= qpresults.info.mu_eq_vec[i]) rank_update=true;
           qpresults.info.mu_eq_vec[i] = new_mu;
@@ -1060,7 +1060,7 @@ QPDO_update_rule(
         T abs_si = std::abs(qpresults.si[i]) ;
         if (abs_si > std::max(std::abs(qpwork.old_si[i])*0.25,qpsettings.eps_abs) ){
           T new_mu = 1.E-2 * qpresults.info.mu_in_vec[i] * primal_feasibility_lhs_new / abs_si;
-          if (new_mu<1.E-9) new_mu = 1.E-9;
+          if (new_mu<qpsettings.mu_min_in) new_mu = qpsettings.mu_min_in;
           if (new_mu>qpresults.info.mu_in_vec[i]) new_mu = qpresults.info.mu_eq_vec[i];
           if (new_mu!= qpresults.info.mu_in_vec[i]) rank_update=true;
           qpresults.info.mu_in_vec[i] = new_mu;
@@ -1068,7 +1068,7 @@ QPDO_update_rule(
         }
     }
     // update rho parameter (aka, proximal step size wrt primal variable)
-    T rho_new = std::max(T(1.E-7),T(0.1*qpresults.info.rho));
+    T rho_new = std::max(T(1.E-6),T(0.1*qpresults.info.rho));
     if (rho_new!=qpresults.info.rho) {
       qpresults.info.rho_updates++;
       // perform full refactorization

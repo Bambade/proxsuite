@@ -842,7 +842,13 @@ active_set_change(const Model<T>& qpmodel,
           T, new_cols, qpmodel.dim, planned_to_delete_count, stack);
         qpwork.dw_aug.head(planned_to_delete_count).setOnes();
         T mu_in_inv_neg(-qpresults.info.mu_in_inv);
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        if (qpsettings.mu_update_rule!=PenalizationUpdateRule::QPDO){
+          qpwork.dw_aug.head(planned_to_delete_count).array() *= mu_in_inv_neg;
+        }
+        #else 
         qpwork.dw_aug.head(planned_to_delete_count).array() *= mu_in_inv_neg;
+        #endif 
         for (isize i = 0; i < planned_to_delete_count; ++i) {
           isize index = planned_to_delete[i] - (qpmodel.dim + qpmodel.n_eq);
           auto col = new_cols.col(i);
@@ -923,11 +929,14 @@ active_set_change(const Model<T>& qpmodel,
               col.head(n) = (qpwork.C_scaled.row(index));
             }
             col.tail(n_eq + n_c_f).setZero();
-            col[n + n_eq + n_c + k] = mu_in_neg;
             #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
             if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
               col[n + n_eq + n_c + k] = -qpresults.info.mu_in_vec[index];
+            }else{
+              col[n + n_eq + n_c + k] = mu_in_neg;
             }
+            #else 
+            col[n + n_eq + n_c + k] = mu_in_neg;
             #endif 
           }
           qpwork.ldl.insert_block_at(n + n_eq + n_c, new_cols, stack);
@@ -951,8 +960,15 @@ active_set_change(const Model<T>& qpmodel,
           LDLT_TEMP_MAT_UNINIT(
             T, new_cols, qpmodel.dim, planned_to_add_count, stack);
           qpwork.dw_aug.head(planned_to_add_count).setOnes();
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          if (qpsettings.mu_update_rule!=PenalizationUpdateRule::QPDO){
+            qpwork.dw_aug.head(planned_to_add_count).array() *=
+            qpresults.info.mu_in_inv;
+          }
+          #else 
           qpwork.dw_aug.head(planned_to_add_count).array() *=
             qpresults.info.mu_in_inv;
+          #endif 
           for (isize i = 0; i < planned_to_add_count; ++i) {
             isize index = planned_to_add[i];
             auto col = new_cols.col(i);
