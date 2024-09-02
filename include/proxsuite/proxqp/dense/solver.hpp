@@ -359,7 +359,11 @@ iterative_residual(const Model<T>& qpmodel,
                    Workspace<T>& qpwork,
                    const isize n_constraints,
                    isize inner_pb_dim,
-                   const HessianType& hessian_type)
+                   const HessianType& hessian_type
+                  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                  , const Settings<T>& qpsettings
+                  #endif 
+                   )
 {
   auto& Hdx = qpwork.Hdx;
   auto& Adx = qpwork.Adx;
@@ -408,25 +412,63 @@ iterative_residual(const Model<T>& qpmodel,
           qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
           qpwork.i_scaled(i - qpmodel.n_in);
         // I_scaled * dx_scaled = dx_unscaled
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+        qpwork.err(qpmodel.dim + qpmodel.n_eq + j) -=
+          (qpwork.active_part_z[i] -
+           qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
+             qpresults.info.mu_in_vec(i));
+        }else{
         qpwork.err(qpmodel.dim + qpmodel.n_eq + j) -=
           (qpwork.active_part_z[i] -
            qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
              qpresults.info.mu_in);
+        }
+        #else 
+        qpwork.err(qpmodel.dim + qpmodel.n_eq + j) -=
+          (qpwork.active_part_z[i] -
+           qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
+             qpresults.info.mu_in);
+        #endif 
       } else {
         qpwork.err.head(qpmodel.dim).noalias() -=
           qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
           qpwork.C_scaled.row(i);
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        if(qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+          qpwork.err(qpmodel.dim + qpmodel.n_eq + j) -=
+          (qpwork.C_scaled.row(i).dot(qpwork.dw_aug.head(qpmodel.dim)) -
+           qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
+             qpresults.info.mu_in_vec(i));
+        }else{
+          qpwork.err(qpmodel.dim + qpmodel.n_eq + j) -=
+          (qpwork.C_scaled.row(i).dot(qpwork.dw_aug.head(qpmodel.dim)) -
+           qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
+             qpresults.info.mu_in);
+        }
+        #else
         qpwork.err(qpmodel.dim + qpmodel.n_eq + j) -=
           (qpwork.C_scaled.row(i).dot(qpwork.dw_aug.head(qpmodel.dim)) -
            qpwork.dw_aug(qpmodel.dim + qpmodel.n_eq + j) *
              qpresults.info.mu_in);
+        #endif 
       }
     }
   }
   Adx.noalias() = qpwork.A_scaled * qpwork.dw_aug.head(qpmodel.dim);
   qpwork.err.segment(qpmodel.dim, qpmodel.n_eq).noalias() -= Adx;
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+    qpwork.err.segment(qpmodel.dim, qpmodel.n_eq) +=
+    (qpwork.dw_aug.segment(qpmodel.dim, qpmodel.n_eq)).cwiseProduct(qpresults.info.mu_eq_vec);
+  }else{
+    qpwork.err.segment(qpmodel.dim, qpmodel.n_eq) +=
+    qpwork.dw_aug.segment(qpmodel.dim, qpmodel.n_eq) * qpresults.info.mu_eq;
+  }
+  #else 
   qpwork.err.segment(qpmodel.dim, qpmodel.n_eq) +=
     qpwork.dw_aug.segment(qpmodel.dim, qpmodel.n_eq) * qpresults.info.mu_eq;
+  #endif 
 }
 
 template<typename T>
@@ -546,7 +588,11 @@ iterative_solve_with_permut_fact( //
                       inner_pb_dim,
                       stack);
   iterative_residual<T>(
-    qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type);
+    qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+    , qpsettings
+    #endif 
+    );
 
   ++it;
   T preverr = infty_norm(qpwork.err.head(inner_pb_dim));
@@ -569,7 +615,11 @@ iterative_solve_with_permut_fact( //
 
     qpwork.err.head(inner_pb_dim).setZero();
     iterative_residual<T>(
-      qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type);
+      qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      , qpsettings
+      #endif 
+    );
 
     if (infty_norm(qpwork.err.head(inner_pb_dim)) > preverr) {
       it_stability += 1;
@@ -609,7 +659,11 @@ iterative_solve_with_permut_fact( //
     // qpwork.ldl.solve_in_place(qpwork.dw_aug.head(inner_pb_dim), stack);
 
     iterative_residual<T>(
-      qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type);
+      qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      , qpsettings
+      #endif 
+      );
 
     preverr = infty_norm(qpwork.err.head(inner_pb_dim));
     ++it;
@@ -632,7 +686,11 @@ iterative_solve_with_permut_fact( //
 
       qpwork.err.head(inner_pb_dim).setZero();
       iterative_residual<T>(
-        qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type);
+        qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        , qpsettings
+        #endif 
+        );
 
       if (infty_norm(qpwork.err.head(inner_pb_dim)) > preverr) {
         it_stability += 1;
