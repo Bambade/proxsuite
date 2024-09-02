@@ -1122,10 +1122,21 @@ compute_inner_loop_saddle_point(const Model<T>& qpmodel,
     helpers::negative_part(qpresults.si);
   switch (qpsettings.merit_function_type) {
     case MeritFunctionType::GPDAL:
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+      qpwork.active_part_z -=
+        qpsettings.alpha_gpdal * (qpresults.z).cwiseProduct(
+        qpresults.info.mu_in_vec); // contains now : [Cx-u+z_prev*mu_in]+
+      }else{
       qpwork.active_part_z -=
         qpsettings.alpha_gpdal * qpresults.z *
         qpresults.info.mu_in; // contains now : [Cx-u+z_prev*mu_in]+
-
+      }
+      #else 
+      qpwork.active_part_z -=
+        qpsettings.alpha_gpdal * qpresults.z *
+        qpresults.info.mu_in; // contains now : [Cx-u+z_prev*mu_in]+
+      #endif 
       // qpwork.active_part_z.head(qpmodel.n_in) -=
       //   qpsettings.alpha_gpdal * qpresults.z.head(qpmodel.n_in) *
       //   qpresults.info.mu_in; // contains now : [Cx-u+z_prev*mu_in]+
@@ -1136,10 +1147,23 @@ compute_inner_loop_saddle_point(const Model<T>& qpmodel,
       // }
       break;
     case MeritFunctionType::PDAL:
+    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+        qpwork.active_part_z -=
+        (qpresults.z).cwiseProduct(
+        qpresults.info.mu_in_vec); // contains now : [Cx-u+z_prev*mu_in]+
+      }else{
       qpwork.active_part_z -=
         qpresults.z *
         qpresults.info.mu_in; // contains now : [Cx-u+z_prev*mu_in]+
                               // + [Cx-l+z_prev*mu_in]- - z*mu_in
+      }
+      #else 
+      qpwork.active_part_z -=
+        qpresults.z *
+        qpresults.info.mu_in; // contains now : [Cx-u+z_prev*mu_in]+
+                              // + [Cx-l+z_prev*mu_in]- - z*mu_in
+      #endif 
       // qpwork.active_part_z.head(qpmodel.n_in) -=
       //   qpresults.z.head(qpmodel.n_in) *
       //   qpresults.info.mu_in; // contains now : [Cx-u+z_prev*mu_in]+
@@ -1296,6 +1320,17 @@ primal_dual_semi_smooth_newton_step(const Settings<T>& qpsettings,
       for (isize i = 0; i < n_constraints; i++) {
         isize j = qpwork.current_bijection_map(i);
         if (j < qpwork.n_c) {
+          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+          if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+          if (qpwork.active_set_up(i)) {
+            qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpwork.primal_residual_in_scaled_up(i) +
+              qpresults.z(i) * qpresults.info.mu_in_vec(i);
+          } else if (qpwork.active_set_low(i)) {
+            qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpresults.si(i) + qpresults.z(i) * qpresults.info.mu_in_vec(i);
+          }
+          }else{
           if (qpwork.active_set_up(i)) {
             qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
               -qpwork.primal_residual_in_scaled_up(i) +
@@ -1304,6 +1339,17 @@ primal_dual_semi_smooth_newton_step(const Settings<T>& qpsettings,
             qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
               -qpresults.si(i) + qpresults.z(i) * qpresults.info.mu_in;
           }
+          }
+          #else 
+          if (qpwork.active_set_up(i)) {
+            qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpwork.primal_residual_in_scaled_up(i) +
+              qpresults.z(i) * qpresults.info.mu_in;
+          } else if (qpwork.active_set_low(i)) {
+            qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq) =
+              -qpresults.si(i) + qpresults.z(i) * qpresults.info.mu_in;
+          }
+          #endif 
         } else {
           if (i >= qpmodel.n_in) {
             // unactive unrelevant columns
