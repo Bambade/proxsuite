@@ -136,22 +136,10 @@ struct Results
     })
     #endif
   {
-    // #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-    //   info.mu_eq_vec.resize(n_eq);
-    //   info.mu_eq_vec_inv.resize(n_eq);
-    // #endif 
     if (box_constraints) {
       z.resize(dim + n_in);
       si.resize(dim + n_in);
-      // #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-      // info.mu_in_vec.resize(dim+n_in);
-      // info.mu_in_vec_inv.resize(dim+n_in);
-      // #endif 
     } else {
-      // #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-      // info.mu_in_vec.resize(n_in);
-      // info.mu_in_vec_inv.resize(n_in);
-      // #endif 
       z.resize(n_in);
       si.resize(n_in);
     }

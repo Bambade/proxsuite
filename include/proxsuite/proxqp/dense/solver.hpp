@@ -2199,12 +2199,45 @@ qp_solve( //
       }
       std::cout << "\033[1;32m[outer iteration " << iter + 1 << "]\033[0m"
                 << std::endl;
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+        if(qpmodel.n_in>0){
+          std::cout << std::scientific << std::setw(2) << std::setprecision(2)
+                    << "| primal residual=" << qpresults.info.pri_res
+                    << " | dual residual=" << qpresults.info.dua_res
+                    << " | duality gap=" << qpresults.info.duality_gap
+                    << " | mu_in=" << qpresults.info.mu_in_vec(0)
+                    << " | rho=" << qpresults.info.rho << std::endl;
+        }else if (qpmodel.n_eq>0){
+                    std::cout << std::scientific << std::setw(2) << std::setprecision(2)
+                    << "| primal residual=" << qpresults.info.pri_res
+                    << " | dual residual=" << qpresults.info.dua_res
+                    << " | duality gap=" << qpresults.info.duality_gap
+                    << " | mu_eq=" << qpresults.info.mu_in_vec(0)
+                    << " | rho=" << qpresults.info.rho << std::endl;
+        }else{
+                    std::cout << std::scientific << std::setw(2) << std::setprecision(2)
+                    << "| primal residual=" << qpresults.info.pri_res
+                    << " | dual residual=" << qpresults.info.dua_res
+                    << " | duality gap=" << qpresults.info.duality_gap
+                    << " | rho=" << qpresults.info.rho << std::endl;
+        }
+      }else{
       std::cout << std::scientific << std::setw(2) << std::setprecision(2)
                 << "| primal residual=" << qpresults.info.pri_res
                 << " | dual residual=" << qpresults.info.dua_res
                 << " | duality gap=" << qpresults.info.duality_gap
                 << " | mu_in=" << qpresults.info.mu_in
                 << " | rho=" << qpresults.info.rho << std::endl;
+      }
+      #else 
+      std::cout << std::scientific << std::setw(2) << std::setprecision(2)
+                << "| primal residual=" << qpresults.info.pri_res
+                << " | dual residual=" << qpresults.info.dua_res
+                << " | duality gap=" << qpresults.info.duality_gap
+                << " | mu_in=" << qpresults.info.mu_in
+                << " | rho=" << qpresults.info.rho << std::endl;
+      #endif 
       ruiz.scale_primal_in_place(VectorViewMut<T>{ from_eigen, qpresults.x });
       ruiz.scale_dual_in_place_eq(VectorViewMut<T>{ from_eigen, qpresults.y });
       ruiz.scale_dual_in_place_in(

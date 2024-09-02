@@ -54,10 +54,32 @@ print_setup_header(const Settings<T>& settings,
             << " eps_rel = " << settings.eps_rel << std::endl;
   std::cout << "          eps_prim_inf = " << settings.eps_primal_inf
             << ", eps_dual_inf = " << settings.eps_dual_inf << "," << std::endl;
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  if (settings.mu_update_rule==PenalizationUpdateRule::QPDO){
+    if (model.n_eq>0 && model.n_in>0) {
+      std::cout << "          rho = " << results.info.rho
+            << ", mu_eq = " << results.info.mu_eq_vec(0)
+            << ", mu_in = " <<  results.info.mu_in_vec(0)<< "," << std::endl;
+    }else if (model.n_eq>0&& model.n_in==0){
+    std::cout << "          rho = " << results.info.rho
+            << ", mu_eq = " << results.info.mu_eq_vec(0) << "," << std::endl;
+    }else if (model.n_eq==0 && model.n_in>0){
+  std::cout << "          rho = " << results.info.rho
+            << ", mu_in = " <<  results.info.mu_in_vec(0)  << "," << std::endl;
+    }else {
+  std::cout << "          rho = " << results.info.rho << "," << std::endl;
+    }
 
+  }else{
   std::cout << "          rho = " << results.info.rho
             << ", mu_eq = " << results.info.mu_eq
             << ", mu_in = " << results.info.mu_in << "," << std::endl;
+  }
+  #else 
+  std::cout << "          rho = " << results.info.rho
+            << ", mu_eq = " << results.info.mu_eq
+            << ", mu_in = " << results.info.mu_in << "," << std::endl;
+  #endif 
   std::cout << "          max_iter = " << settings.max_iter
             << ", max_iter_in = " << settings.max_iter_in << "," << std::endl;
   if (box_constraints) {
