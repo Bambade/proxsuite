@@ -480,7 +480,11 @@ solve_linear_system(proxsuite::proxqp::dense::Vec<T>& dw,
                     const isize n_constraints,
                     const DenseBackend& dense_backend,
                     isize inner_pb_dim,
-                    proxsuite::linalg::veg::dynstack::DynStackMut& stack)
+                    proxsuite::linalg::veg::dynstack::DynStackMut& stack
+                    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                    , const Settings<T>& qpsettings
+                    #endif  
+                    )
 {
 
   switch (dense_backend) {
@@ -489,9 +493,21 @@ solve_linear_system(proxsuite::proxqp::dense::Vec<T>& dw,
       break;
     case DenseBackend::PrimalLDLT:
       // find dx
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+        dw.head(qpmodel.dim).noalias() += qpresults.info.mu_eq_vec_inv.cwiseProduct(
+                                        (qpwork.A_scaled.transpose() *
+                                        dw.segment(qpmodel.dim, qpmodel.n_eq)));
+      }else{
+        dw.head(qpmodel.dim).noalias() += qpresults.info.mu_eq_inv *
+                                        qpwork.A_scaled.transpose() *
+                                        dw.segment(qpmodel.dim, qpmodel.n_eq);
+      }
+      #else 
       dw.head(qpmodel.dim).noalias() += qpresults.info.mu_eq_inv *
                                         qpwork.A_scaled.transpose() *
                                         dw.segment(qpmodel.dim, qpmodel.n_eq);
+      #endif 
       for (isize i = 0; i < n_constraints; i++) {
         isize j = qpwork.current_bijection_map(i);
         if (j < qpwork.n_c) {
@@ -508,6 +524,19 @@ solve_linear_system(proxsuite::proxqp::dense::Vec<T>& dw,
       }
       qpwork.ldl.solve_in_place(dw.head(qpmodel.dim), stack);
       // find dy
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+
+      }else{
+        dw.segment(qpmodel.dim, qpmodel.n_eq) -=
+        qpresults.info.mu_eq_vec_inv.cwiseProduct(dw.segment(qpmodel.dim, qpmodel.n_eq));
+      dw.segment(qpmodel.dim, qpmodel.n_eq).noalias() +=
+        qpresults.info.mu_eq_vec_inv.cwiseProduct(
+        (qpwork.A_scaled *
+         dw.head(
+           qpmodel.dim))); //- qpwork.rhs.segment(qpmodel.dim,qpmodel.n_eq));
+      }
+      #else 
       dw.segment(qpmodel.dim, qpmodel.n_eq) -=
         qpresults.info.mu_eq_inv * dw.segment(qpmodel.dim, qpmodel.n_eq);
       dw.segment(qpmodel.dim, qpmodel.n_eq).noalias() +=
@@ -515,12 +544,32 @@ solve_linear_system(proxsuite::proxqp::dense::Vec<T>& dw,
         (qpwork.A_scaled *
          dw.head(
            qpmodel.dim)); //- qpwork.rhs.segment(qpmodel.dim,qpmodel.n_eq));
+      #endif 
       // find dz_J
       for (isize i = 0; i < n_constraints; i++) {
         isize j = qpwork.current_bijection_map(i);
         if (j < qpwork.n_c) {
           if (i >= qpmodel.n_in) {
             // box constraints
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+              dw(j + qpmodel.dim + qpmodel.n_eq) -=
+              qpresults.info.mu_in_vec_inv(i) * (dw(j + qpmodel.dim + qpmodel.n_eq));
+            dw(j + qpmodel.dim + qpmodel.n_eq) +=
+              qpresults.info.mu_in_vec_inv(i) *
+              (dw(
+                i -
+                qpmodel.n_in)); //- qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq));
+            }else{
+              dw(j + qpmodel.dim + qpmodel.n_eq) -=
+              qpresults.info.mu_in_inv * (dw(j + qpmodel.dim + qpmodel.n_eq));
+            dw(j + qpmodel.dim + qpmodel.n_eq) +=
+              qpresults.info.mu_in_inv *
+              (dw(
+                i -
+                qpmodel.n_in)); //- qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq));
+            }
+            #else 
             dw(j + qpmodel.dim + qpmodel.n_eq) -=
               qpresults.info.mu_in_inv * (dw(j + qpmodel.dim + qpmodel.n_eq));
             dw(j + qpmodel.dim + qpmodel.n_eq) +=
@@ -528,7 +577,25 @@ solve_linear_system(proxsuite::proxqp::dense::Vec<T>& dw,
               (dw(
                 i -
                 qpmodel.n_in)); //- qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq));
+            #endif
           } else {
+            #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+            if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+              dw(j + qpmodel.dim + qpmodel.n_eq) -=
+              qpresults.info.mu_in_vec_inv(i) * (dw(j + qpmodel.dim + qpmodel.n_eq));
+            dw(j + qpmodel.dim + qpmodel.n_eq) +=
+              qpresults.info.mu_in_vec_inv(i) *
+              (qpwork.C_scaled.row(i).dot(dw.head(
+                qpmodel.dim))); //- qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq));
+            }else{
+              dw(j + qpmodel.dim + qpmodel.n_eq) -=
+              qpresults.info.mu_in_inv * (dw(j + qpmodel.dim + qpmodel.n_eq));
+            dw(j + qpmodel.dim + qpmodel.n_eq) +=
+              qpresults.info.mu_in_inv *
+              (qpwork.C_scaled.row(i).dot(dw.head(
+                qpmodel.dim))); //- qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq));
+            }
+            #else 
             // ineq constraints
             dw(j + qpmodel.dim + qpmodel.n_eq) -=
               qpresults.info.mu_in_inv * (dw(j + qpmodel.dim + qpmodel.n_eq));
@@ -536,6 +603,7 @@ solve_linear_system(proxsuite::proxqp::dense::Vec<T>& dw,
               qpresults.info.mu_in_inv *
               (qpwork.C_scaled.row(i).dot(dw.head(
                 qpmodel.dim))); //- qpwork.rhs(j + qpmodel.dim + qpmodel.n_eq));
+            #endif 
           }
         }
       }
@@ -568,7 +636,8 @@ iterative_solve_with_permut_fact( //
   const DenseBackend& dense_backend,
   const HessianType& hessian_type,
   T eps,
-  isize inner_pb_dim)
+  isize inner_pb_dim
+  )
 {
 
   qpwork.err.setZero();
@@ -586,7 +655,11 @@ iterative_solve_with_permut_fact( //
                       n_constraints,
                       dense_backend,
                       inner_pb_dim,
-                      stack);
+                      stack
+                      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                      ,qpsettings
+                      #endif 
+);
   iterative_residual<T>(
     qpmodel, qpresults, qpwork, n_constraints, inner_pb_dim, hessian_type
     #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
@@ -609,7 +682,11 @@ iterative_solve_with_permut_fact( //
                         n_constraints,
                         dense_backend,
                         inner_pb_dim,
-                        stack);
+                        stack
+                      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                      ,qpsettings
+                      #endif 
+                        );
     // qpwork.ldl.solve_in_place(qpwork.err.head(inner_pb_dim), stack);
     qpwork.dw_aug.head(inner_pb_dim) += qpwork.err.head(inner_pb_dim);
 
@@ -655,7 +732,11 @@ iterative_solve_with_permut_fact( //
                         n_constraints,
                         dense_backend,
                         inner_pb_dim,
-                        stack);
+                        stack
+                        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                      ,qpsettings
+                        #endif 
+                        );
     // qpwork.ldl.solve_in_place(qpwork.dw_aug.head(inner_pb_dim), stack);
 
     iterative_residual<T>(
@@ -680,7 +761,11 @@ iterative_solve_with_permut_fact( //
                           n_constraints,
                           dense_backend,
                           inner_pb_dim,
-                          stack);
+                          stack
+                          #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                          ,qpsettings
+                          #endif 
+                          );
       // qpwork.ldl.solve_in_place(qpwork.err.head(inner_pb_dim), stack);
       qpwork.dw_aug.head(inner_pb_dim) += qpwork.err.head(inner_pb_dim);
 
@@ -886,7 +971,7 @@ QPDO_update_rule(
                 T eps_in_min
 )
 { 
-  if (qpresults.info.iter_ext==1){
+  if (qpresults.info.iter_ext==0){
     // this corresponds to the initialization
     // this is done before the first factorization, 
     // there there has not been a priori call to the computation of primal residuals
@@ -1240,7 +1325,8 @@ primal_dual_semi_smooth_newton_step(const Settings<T>& qpsettings,
     dense_backend,
     hessian_type,
     eps,
-    inner_pb_dim);
+    inner_pb_dim
+    );
 
   // use active_part_z as a temporary variable to derive unpermutted dz step
   for (isize j = 0; j < n_constraints; ++j) {
