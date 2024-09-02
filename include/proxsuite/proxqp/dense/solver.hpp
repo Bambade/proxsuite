@@ -1022,17 +1022,19 @@ QPDO_update_rule(
     }
     qpresults.info.objValue += (qpmodel.g).dot(qpresults.x);
     // compute factor coefficient for penalization parameter update
-    T factor = T(0.1) / std::max(T(1),qpresults.info.objValue);
+    T factor = T(0.1) / std::max(T(1),std::abs(qpresults.info.objValue));
     // now update the penalization parameter component by component
     for (isize i=0;i<qpmodel.n_eq;i++){
-      qpresults.info.mu_eq_vec[i]=std::max(T(1),T(std::pow(qpresults.se[i],2)))*factor;
-      qpresults.info.mu_eq_vec[i]=std::max(std::min(T(1.E-3),qpresults.info.mu_eq_vec[i]),T(1.E3));
+      qpresults.info.mu_eq_vec[i]=std::max(T(1),T(std::pow(qpresults.se[i],2)*0.5))*factor;
+      if (qpresults.info.mu_eq_vec[i]<T(1.E-3)) qpresults.info.mu_eq_vec[i] = T(1.E-3);
+      if (qpresults.info.mu_eq_vec[i]>T(1.E3)) qpresults.info.mu_eq_vec[i] = T(1.E3);
       qpwork.old_mu_eq[i] = qpresults.info.mu_eq_vec[i];
       qpresults.info.mu_eq_vec_inv[i]=T(1)/qpresults.info.mu_eq_vec[i];
     }
     for (isize i=0;i<qpmodel.n_in;i++){
-      qpresults.info.mu_in_vec[i]=std::max(T(1),T(std::pow(qpresults.si[i],2)))*factor;
-      qpresults.info.mu_in_vec[i]=std::max(std::min(T(1.E-3),qpresults.info.mu_in_vec[i]),T(1.E3));
+      qpresults.info.mu_in_vec[i]=std::max(T(1),T(std::pow(qpresults.si[i],2)*0.5))*factor;
+      if (qpresults.info.mu_in_vec[i]<T(1.E-3)) qpresults.info.mu_in_vec[i] = T(1.E-3);
+      if (qpresults.info.mu_in_vec[i]>T(1.E3)) qpresults.info.mu_in_vec[i] = T(1.E3);
       qpwork.old_mu_in[i] = qpresults.info.mu_in_vec[i];
       qpresults.info.mu_in_vec_inv[i]=T(1)/qpresults.info.mu_in_vec[i];
     }
@@ -1045,9 +1047,10 @@ QPDO_update_rule(
     // the update is performed component by component 
     for (isize i=0;i<qpmodel.n_eq;i++){
         T abs_se = std::abs(qpresults.se[i]) ;
-        if (abs_se > std::max(std::abs(qpwork.old_se[i]*0.25),qpsettings.eps_abs) ){
-          T factor = 1.E-2 * qpresults.info.mu_eq_vec[i] * primal_feasibility_lhs_new / abs_se;
-          T new_mu = std::max(std::min(factor,1.E-9),qpresults.info.mu_eq_vec[i]);
+        if (abs_se > std::max(std::abs(qpwork.old_se[i])*0.25,qpsettings.eps_abs) ){
+          T new_mu = 1.E-2 * qpresults.info.mu_eq_vec[i] * primal_feasibility_lhs_new / abs_se;
+          if (new_mu<1.E-9) new_mu = 1.E-9;
+          if (new_mu>qpresults.info.mu_eq_vec[i]) new_mu = qpresults.info.mu_eq_vec[i];
           if (new_mu!= qpresults.info.mu_eq_vec[i]) rank_update=true;
           qpresults.info.mu_eq_vec[i] = new_mu;
           qpresults.info.mu_eq_vec_inv[i] = T(1)/qpresults.info.mu_eq_vec[i];
@@ -1055,9 +1058,10 @@ QPDO_update_rule(
     }
     for (isize i=0;i<qpmodel.n_in;i++){
         T abs_si = std::abs(qpresults.si[i]) ;
-        if (abs_si > std::max(std::abs(qpwork.old_si[i]*0.25),qpsettings.eps_abs) ){
-          T factor = 1.E-2 * qpresults.info.mu_in_vec[i] * primal_feasibility_lhs_new / abs_si;
-          T new_mu = std::max(std::min(factor,1.E-9),qpresults.info.mu_in_vec[i]);
+        if (abs_si > std::max(std::abs(qpwork.old_si[i])*0.25,qpsettings.eps_abs) ){
+          T new_mu = 1.E-2 * qpresults.info.mu_in_vec[i] * primal_feasibility_lhs_new / abs_si;
+          if (new_mu<1.E-9) new_mu = 1.E-9;
+          if (new_mu>qpresults.info.mu_in_vec[i]) new_mu = qpresults.info.mu_eq_vec[i];
           if (new_mu!= qpresults.info.mu_in_vec[i]) rank_update=true;
           qpresults.info.mu_in_vec[i] = new_mu;
           qpresults.info.mu_in_vec_inv[i] = T(1)/qpresults.info.mu_in_vec[i];
@@ -1813,7 +1817,11 @@ qp_solve( //
       }
       #endif 
       proxsuite::proxqp::dense::setup_factorization(
-        qpwork, qpmodel, qpresults, dense_backend, hessian_type);
+        qpwork, qpmodel, qpresults, dense_backend, hessian_type
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        , qpsettings
+        #endif
+        );
     }
     switch (qpsettings.initial_guess) {
       case InitialGuessStatus::EQUALITY_CONSTRAINED_INITIAL_GUESS: {
@@ -1901,7 +1909,11 @@ qp_solve( //
         }
         #endif 
         proxsuite::proxqp::dense::setup_factorization(
-          qpwork, qpmodel, qpresults, dense_backend, hessian_type);
+          qpwork, qpmodel, qpresults, dense_backend, hessian_type
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        , qpsettings
+        #endif
+          );
         compute_equality_constrained_initial_guess(qpwork,
                                                    qpsettings,
                                                    qpmodel,
@@ -1950,7 +1962,11 @@ qp_solve( //
         }
         #endif 
         setup_factorization(
-          qpwork, qpmodel, qpresults, dense_backend, hessian_type);
+          qpwork, qpmodel, qpresults, dense_backend, hessian_type
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        , qpsettings
+        #endif
+          );
         qpwork.n_c = 0;
         for (isize i = 0; i < n_constraints; i++) {
           if (qpresults.z[i] != 0) {
@@ -1992,7 +2008,11 @@ qp_solve( //
         }
         #endif 
         setup_factorization(
-          qpwork, qpmodel, qpresults, dense_backend, hessian_type);
+          qpwork, qpmodel, qpresults, dense_backend, hessian_type
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        , qpsettings
+        #endif
+          );
         break;
       }
       case InitialGuessStatus::WARM_START: {
@@ -2031,7 +2051,11 @@ qp_solve( //
         }
         #endif 
         setup_factorization(
-          qpwork, qpmodel, qpresults, dense_backend, hessian_type);
+          qpwork, qpmodel, qpresults, dense_backend, hessian_type
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        , qpsettings
+        #endif
+          );
         qpwork.n_c = 0;
         for (isize i = 0; i < n_constraints; i++) {
           if (qpresults.z[i] != 0) {
@@ -2090,7 +2114,11 @@ qp_solve( //
                                   // matrices has changed or one proximal
                                   // parameter has changed
           setup_factorization(
-            qpwork, qpmodel, qpresults, dense_backend, hessian_type);
+            qpwork, qpmodel, qpresults, dense_backend, hessian_type
+        #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+        , qpsettings
+        #endif
+            );
           qpwork.n_c = 0;
           for (isize i = 0; i < n_constraints; i++) {
             if (qpresults.z[i] != 0) {

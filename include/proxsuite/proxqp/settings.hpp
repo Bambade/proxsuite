@@ -327,6 +327,7 @@ struct Settings
     #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
     case PenalizationUpdateRule::QPDO:
       default_rho = 1.E-3;
+      alpha_gpdal = 0.5;
       break;
     
     #endif

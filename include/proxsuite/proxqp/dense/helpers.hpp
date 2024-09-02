@@ -242,7 +242,11 @@ setup_factorization(Workspace<T>& qpwork,
                     const Model<T>& qpmodel,
                     Results<T>& qpresults,
                     const DenseBackend& dense_backend,
-                    const HessianType& hessian_type)
+                    const HessianType& hessian_type
+                    #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+                    ,const Settings<T>& qpsettings
+                    #endif 
+                    )
 {
 
   proxsuite::linalg::veg::dynstack::DynStackMut stack{
@@ -262,6 +266,51 @@ setup_factorization(Workspace<T>& qpwork,
   }
   qpwork.kkt.topLeftCorner(qpmodel.dim, qpmodel.dim).diagonal().array() +=
     qpresults.info.rho;
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
+      switch (dense_backend) {
+    case DenseBackend::PrimalDualLDLT:
+      qpwork.kkt.block(0, qpmodel.dim, qpmodel.dim, qpmodel.n_eq) =
+        qpwork.A_scaled.transpose();
+      qpwork.kkt.block(qpmodel.dim, 0, qpmodel.n_eq, qpmodel.dim) =
+        qpwork.A_scaled;
+      qpwork.kkt.bottomRightCorner(qpmodel.n_eq, qpmodel.n_eq).setZero();
+      qpwork.kkt.diagonal()
+        .segment(qpmodel.dim, qpmodel.n_eq)
+        =-qpresults.info.mu_eq_vec;
+      qpwork.ldl.factorize(qpwork.kkt.transpose(), stack);
+      break;
+    case DenseBackend::PrimalLDLT:
+      qpwork.kkt.noalias() += 
+                              (qpwork.A_scaled.transpose() * qpresults.info.mu_eq_vec_inv.asDiagonal() * qpwork.A_scaled);
+      qpwork.ldl.factorize(qpwork.kkt.transpose(), stack);
+      break;
+    case DenseBackend::Automatic:
+      break;
+  }
+  }else{
+      switch (dense_backend) {
+    case DenseBackend::PrimalDualLDLT:
+      qpwork.kkt.block(0, qpmodel.dim, qpmodel.dim, qpmodel.n_eq) =
+        qpwork.A_scaled.transpose();
+      qpwork.kkt.block(qpmodel.dim, 0, qpmodel.n_eq, qpmodel.dim) =
+        qpwork.A_scaled;
+      qpwork.kkt.bottomRightCorner(qpmodel.n_eq, qpmodel.n_eq).setZero();
+      qpwork.kkt.diagonal()
+        .segment(qpmodel.dim, qpmodel.n_eq)
+        .setConstant(-qpresults.info.mu_eq);
+      qpwork.ldl.factorize(qpwork.kkt.transpose(), stack);
+      break;
+    case DenseBackend::PrimalLDLT:
+      qpwork.kkt.noalias() += qpresults.info.mu_eq_inv *
+                              (qpwork.A_scaled.transpose() * qpwork.A_scaled);
+      qpwork.ldl.factorize(qpwork.kkt.transpose(), stack);
+      break;
+    case DenseBackend::Automatic:
+      break;
+  }
+  }
+  #else 
   switch (dense_backend) {
     case DenseBackend::PrimalDualLDLT:
       qpwork.kkt.block(0, qpmodel.dim, qpmodel.dim, qpmodel.n_eq) =
@@ -282,6 +331,7 @@ setup_factorization(Workspace<T>& qpwork,
     case DenseBackend::Automatic:
       break;
   }
+  #endif
 }
 /*!
  * Performs the equilibration of the QP problem for reducing its

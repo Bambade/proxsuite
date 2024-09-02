@@ -207,6 +207,55 @@ public:
       case PenalizationUpdateRule::QPDO:
         results.info.rho = 1.E-3;
         settings.default_rho = 1.E-3;
+        settings.alpha_gpdal = 0.5;
+        break;
+    }
+    work.timer.stop();
+  }
+  /*!
+   * Default constructor using QP model dimensions.
+   * @param _dim primal variable dimension.
+   * @param _n_eq number of equality constraints.
+   * @param _n_in number of inequality constraints.
+   * @param _box_constraints specify that there are (or not) box constraints.
+   * @param _dense_backend specify which factorization is used.
+   * @param penalization_update_rule specify penalization update rule (BCL by default)
+   */
+  QP(isize _dim,
+     isize _n_eq,
+     isize _n_in,
+     bool _box_constraints,
+     DenseBackend _dense_backend,
+     PenalizationUpdateRule penalization_update_rule)
+    : dense_backend(dense_backend_choice<T>(_dense_backend,
+                                            _dim,
+                                            _n_eq,
+                                            _n_in,
+                                            _box_constraints))
+    , box_constraints(_box_constraints)
+    , hessian_type(HessianType::Dense)
+    , results(_dim, _n_eq, _n_in, _box_constraints, dense_backend)
+    , settings(dense_backend)
+    , model(_dim, _n_eq, _n_in, _box_constraints)
+    , work(_dim, _n_eq, _n_in, _box_constraints, dense_backend)
+    , ruiz(preconditioner::RuizEquilibration<T>{ _dim,
+                                                 _n_eq,
+                                                 _n_in,
+                                                 _box_constraints })
+  {
+    settings.mu_update_rule=penalization_update_rule;
+    switch(penalization_update_rule){
+      case PenalizationUpdateRule::BCL:
+        results.info.rho = 1.E-6;
+        settings.default_rho = 1.E-6;
+        break;
+      case PenalizationUpdateRule::Martinez:
+        results.info.rho = 1.E-6;
+        settings.default_rho = 1.E-6;
+      case PenalizationUpdateRule::QPDO:
+        results.info.rho = 1.E-3;
+        settings.default_rho = 1.E-3;
+        settings.alpha_gpdal = 0.5;
         break;
     }
     work.timer.stop();

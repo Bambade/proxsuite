@@ -74,7 +74,11 @@ compute_backward(dense::QP<T>& solved_qp,
       solved_qp.model,
       solved_qp.results,
       solved_qp.which_dense_backend(),
-      solved_qp.which_hessian_type());
+      solved_qp.which_hessian_type()
+      #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+      ,solved_qp.settings
+      #endif
+      );
     solved_qp.work.n_c = 0;
     for (isize i = 0; i < solved_qp.model.n_in; i++) {
       solved_qp.work.current_bijection_map(i) = i;
