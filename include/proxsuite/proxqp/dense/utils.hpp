@@ -288,9 +288,6 @@ global_primal_residual(const Model<T>& qpmodel,
   }
   // qpwork.primal_residual_eq_scaled -= qpmodel.b;
   qpresults.se -= qpmodel.b;
-  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
-  }
-  #endif
   primal_feasibility_in_lhs = infty_norm(qpresults.si);
   // primal_feasibility_eq_lhs = infty_norm(qpwork.primal_residual_eq_scaled);
   primal_feasibility_eq_lhs = infty_norm(qpresults.se);
@@ -307,6 +304,9 @@ global_primal_residual(const Model<T>& qpmodel,
   ruiz.scale_primal_residual_in_place_eq(
     VectorViewMut<T>{ from_eigen, qpresults.se });
   // VectorViewMut<T>{ from_eigen, qpwork.primal_residual_eq_scaled });
+  #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
+  }
+  #endif
 }
 
 /*!

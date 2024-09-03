@@ -169,7 +169,7 @@ public:
    * @param _n_in number of inequality constraints.
    * @param _hessian_type problem type (QP, LP, DIAGONAL)
    * @param _box_constraints specify that there are (or not) box constraints.
-   * @param _dense_backend specify which factorization is used.
+  //  * @param _dense_backend specify which factorization is used.
    * @param penalization_update_rule specify penalization update rule (BCL by default)
    */
   QP(isize _dim,
@@ -177,13 +177,9 @@ public:
      isize _n_in,
      bool _box_constraints,
      proxsuite::proxqp::HessianType _hessian_type,
-     DenseBackend _dense_backend,
+    //  DenseBackend _dense_backend, // TODO: not yet stable with PrimalLDLT version if QPDO penalization is used
      PenalizationUpdateRule penalization_update_rule)
-    : dense_backend(dense_backend_choice<T>(_dense_backend,
-                                            _dim,
-                                            _n_eq,
-                                            _n_in,
-                                            _box_constraints))
+    : dense_backend(DenseBackend::PrimalDualLDLT)
     , box_constraints(_box_constraints)
     , hessian_type(_hessian_type)
     , results(_dim, _n_eq, _n_in, _box_constraints, dense_backend)
@@ -218,20 +214,15 @@ public:
    * @param _n_eq number of equality constraints.
    * @param _n_in number of inequality constraints.
    * @param _box_constraints specify that there are (or not) box constraints.
-   * @param _dense_backend specify which factorization is used.
+  //  * @param _dense_backend specify which factorization is used.
    * @param penalization_update_rule specify penalization update rule (BCL by default)
    */
   QP(isize _dim,
      isize _n_eq,
      isize _n_in,
      bool _box_constraints,
-     DenseBackend _dense_backend,
      PenalizationUpdateRule penalization_update_rule)
-    : dense_backend(dense_backend_choice<T>(_dense_backend,
-                                            _dim,
-                                            _n_eq,
-                                            _n_in,
-                                            _box_constraints))
+    : dense_backend(DenseBackend::PrimalDualLDLT)
     , box_constraints(_box_constraints)
     , hessian_type(HessianType::Dense)
     , results(_dim, _n_eq, _n_in, _box_constraints, dense_backend)

@@ -266,6 +266,7 @@ setup_factorization(Workspace<T>& qpwork,
   }
   qpwork.kkt.topLeftCorner(qpmodel.dim, qpmodel.dim).diagonal().array() +=
     qpresults.info.rho;
+  
   #ifdef BUILD_WITH_EXTENDED_QPDO_PREALLOCATION
   if (qpsettings.mu_update_rule==PenalizationUpdateRule::QPDO){
       switch (dense_backend) {

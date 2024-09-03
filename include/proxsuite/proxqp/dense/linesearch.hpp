@@ -123,13 +123,13 @@ gpdal_derivative_results(const Model<T>& qpmodel,
           .select(qpwork.Cdx,
                   Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
 
-      a += (qpresults.info.mu_in_vec_inv.cwiseProduct(qpwork.err.tail(n_constraints))).dot(qpwork.err.tail(n_constraints)) /
+      a += (qpresults.info.mu_in_vec_inv.tail(n_constraints).cwiseProduct(qpwork.err.tail(n_constraints))).dot(qpwork.err.tail(n_constraints)) /
           qpsettings.alpha_gpdal; // contains now: a = dx.dot(H.dot(dx)) + rho *
       // norm(dx)**2 + (mu_eq_inv) * norm(Adx)**2 + nu*mu_eq_inv *
       // norm(Adx-dy*mu_eq)**2 +
       // norm(dw_act)**2 / (mu_in * (alpha_gpdal))
         a += (1. - qpsettings.alpha_gpdal) *
-       (qpresults.info.mu_in_vec.cwiseProduct(qpwork.dw_aug.tail(n_constraints))).dot(qpwork.dw_aug.tail(n_constraints));
+       (qpresults.info.mu_in_vec.tail(n_constraints).cwiseProduct(qpwork.dw_aug.tail(n_constraints))).dot(qpwork.dw_aug.tail(n_constraints));
       // add norm(z)**2 * mu_in * (1-alpha)
 
       // derive vector [w-u]_+ + [w-l]--
@@ -141,7 +141,7 @@ gpdal_derivative_results(const Model<T>& qpmodel,
           .select(qpresults.si,
                   Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
       b +=
-    (qpresults.info.mu_in_vec_inv.cwiseProduct(
+    (qpresults.info.mu_in_vec_inv.tail(n_constraints).cwiseProduct(
     qpwork.active_part_z)).dot(qpwork.err.tail(n_constraints)) /
     qpsettings.alpha_gpdal; // contains now: b = dx.dot(H.dot(x) + rho*(x-xe) +
     // g)  + mu_eq_inv * Adx.dot(res_eq) + nu*mu_eq_inv *
@@ -154,7 +154,7 @@ gpdal_derivative_results(const Model<T>& qpmodel,
     // * Cdx_act.dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]--) + nu*mu_in_inv
     // (Cdx_act-dz*mu_in).dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]-- - z*mu_in)
     b +=  (1. - qpsettings.alpha_gpdal) *
-         (qpresults.info.mu_in_vec.cwiseProduct(qpwork.dw_aug.tail(n_constraints))).dot(qpresults.z);
+         (qpresults.info.mu_in_vec.tail(n_constraints).cwiseProduct(qpwork.dw_aug.tail(n_constraints))).dot(qpresults.z);
    return {
     a,
     b,
@@ -332,7 +332,7 @@ primal_dual_derivative_results(const Model<T>& qpmodel,
       .select(qpwork.Cdx,
               Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
 
-  a += (qpresults.info.mu_in_vec_inv.cwiseProduct(
+  a += (qpresults.info.mu_in_vec_inv.tail(n_constraints).cwiseProduct(
        qpwork.err.tail(n_constraints))).dot(qpwork.err.tail(n_constraints)); // contains now: a = dx.dot(H.dot(dx)) + rho *
   // norm(dx)**2 + (mu_eq_inv) * norm(Adx)**2 + nu*mu_eq_inv *
   // norm(Adx-dy*mu_eq)**2 + mu_in *
@@ -347,7 +347,7 @@ primal_dual_derivative_results(const Model<T>& qpmodel,
       .select(qpresults.si,
               Eigen::Matrix<T, Eigen::Dynamic, 1>::Zero(n_constraints));
 
-  b += (qpresults.info.mu_in_vec_inv.cwiseProduct(
+  b += (qpresults.info.mu_in_vec_inv.tail(n_constraints).cwiseProduct(
        qpwork.active_part_z)).dot(qpwork.err.tail(
          n_constraints)); // contains now: b = dx.dot(H.dot(x) + rho*(x-xe) +
   // derive Cdx_act - dz*mu_in
@@ -359,14 +359,14 @@ primal_dual_derivative_results(const Model<T>& qpmodel,
   // contains now a = dx.dot(H.dot(dx)) + rho * norm(dx)**2 + (mu_eq_inv) *
   // norm(Adx)**2 + nu*mu_eq_inv * norm(Adx-dy*mu_eq)**2 + mu_in_inv *
   // norm(Cdx_act)**2 + nu*mu_in_inv * norm(Cdx_act-dz*mu_in)**2
-  a += qpresults.info.nu * (qpresults.info.mu_in_vec_inv).cwiseProduct(
+  a += qpresults.info.nu * (qpresults.info.mu_in_vec_inv.tail(n_constraints)).cwiseProduct(
        qpwork.err.tail(n_constraints)).dot(qpwork.err.tail(n_constraints));
   // contains now b =  dx.dot(H.dot(x) + rho*(x-xe) +  g)  + mu_eq_inv *
   // Adx.dot(res_eq) + nu*mu_eq_inv * (Adx-dy*mu_eq).dot(res_eq-y*mu_eq) +
   // mu_in_inv
   // * Cdx_act.dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]--) + nu*mu_in_inv
   // (Cdx_act-dz*mu_in).dot([Cx-u+ze*mu_in]_+ + [Cx-l+ze*mu_in]-- - z*mu_in)
-  b += qpresults.info.nu * (qpresults.info.mu_in_vec_inv.cwiseProduct(
+  b += qpresults.info.nu * (qpresults.info.mu_in_vec_inv.tail(n_constraints).cwiseProduct(
        qpwork.err.tail(n_constraints))).dot(qpwork.active_part_z);
 
   return {
